@@ -36,7 +36,8 @@ class Config:
             "system": {
                 "debug_mode": True,
                 "log_level": "INFO",
-                "image_retention_days": 30
+                "image_retention_days": 30,
+                "society_name": "ANPR System"
             }
         }
         
@@ -230,6 +231,10 @@ class Config:
     def get_image_retention_days(self):
         """Get the image retention period in days"""
         return self.config['system']['image_retention_days']
+        
+    def get_society_name(self):
+        """Get the society name"""
+        return self.config['system']['society_name']
     
     def update_setting(self, key, value):
         """Update a setting value"""

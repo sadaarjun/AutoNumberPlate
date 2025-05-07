@@ -157,6 +157,14 @@
                     <div class="row">
                         <div class="col-md-4">
                             <div class="mb-3">
+                                <label for="society_name" class="form-label">Society Name</label>
+                                <input type="text" class="form-control" id="society_name" name="society_name" 
+                                       value="{{ config.get_society_name() if config else 'ANPR System' }}">
+                                <div class="form-text">Name of the society/community shown in header</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
                                 <label for="log_level" class="form-label">Log Level</label>
                                 <select class="form-select" id="log_level" name="log_level">
                                     <option value="DEBUG" {% if config and config.get_log_level() == 'DEBUG' %}selected{% endif %}>DEBUG</option>

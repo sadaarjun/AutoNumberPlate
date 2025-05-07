@@ -579,12 +579,19 @@ def settings():
                 request.form.get('camera_rotation')
             ])
             
-            if camera_settings_changed and camera_manager:
-                # Stop current camera
-                camera_manager.cleanup()
-                # Reinitialize with new settings
-                camera_manager.initialize_camera()
-                flash('Camera reinitialized with new settings', 'info')
+            if camera_settings_changed:
+                try:
+                    # Get camera_manager from app config
+                    camera_manager = current_app.config.get('camera_manager')
+                    if camera_manager:
+                        # Stop current camera
+                        camera_manager.cleanup()
+                        # Reinitialize with new settings
+                        camera_manager.initialize_camera()
+                        flash('Camera reinitialized with new settings', 'info')
+                except Exception as e:
+                    logging.error(f"Error reinitializing camera: {str(e)}")
+                    flash(f'Error reinitializing camera: {str(e)}', 'warning')
             
             # Check if ANPR processor needs to be updated
             anpr_settings_changed = any([
@@ -592,17 +599,25 @@ def settings():
                 request.form.get('confidence_threshold')
             ])
             
-            if anpr_settings_changed and anpr_processor and anpr_processor.processing:
-                # Restart ANPR processor
-                anpr_processor.stop_processing()
-                # Wait a moment for processing to stop
-                import time
-                time.sleep(1)
-                # Start with new settings
-                anpr_thread = threading.Thread(target=anpr_processor.start_processing)
-                anpr_thread.daemon = True
-                anpr_thread.start()
-                flash('ANPR processor restarted with new settings', 'info')
+            if anpr_settings_changed:
+                try:
+                    # Get anpr_processor from app config
+                    anpr_processor = current_app.config.get('anpr_processor')
+                    if anpr_processor and anpr_processor.processing:
+                        # Restart ANPR processor
+                        anpr_processor.stop_processing()
+                        # Wait a moment for processing to stop
+                        import time
+                        time.sleep(1)
+                        # Start with new settings
+                        import threading
+                        anpr_thread = threading.Thread(target=anpr_processor.start_processing)
+                        anpr_thread.daemon = True
+                        anpr_thread.start()
+                        flash('ANPR processor restarted with new settings', 'info')
+                except Exception as e:
+                    logging.error(f"Error restarting ANPR processor: {str(e)}")
+                    flash(f'Error restarting ANPR processor: {str(e)}', 'warning')
             
         except Exception as e:
             flash(f'Error updating settings: {str(e)}', 'danger')
