@@ -134,13 +134,13 @@ def create_app():
     @app.context_processor
     def inject_user():
         from routes.auth import current_user
-        # Try to import the url_with_token function for linking with auth token
-        try:
-            from routes.auth import url_with_token
-            return {'current_user': current_user, 'url_with_token': url_with_token}
-        except ImportError:
-            # Fallback if not available
-            return {'current_user': current_user}
+        from flask import url_for
+
+        # Create a simple url_with_token function that just passes through to url_for
+        def url_with_token(endpoint, **kwargs):
+            return url_for(endpoint, **kwargs)
+
+        return {'current_user': current_user, 'url_with_token': url_with_token}
         
     # Add a before_request handler to initialize the session
     @app.before_request
