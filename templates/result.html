@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANPR Results</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i data-feather="camera"></i> ANPR System
+            </a>
+        </div>
+    </nav>
+
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-10">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h4 class="mb-0">License Plate Detection Results</h4>
+                            <a href="/" class="btn btn-outline-light btn-sm">
+                                <i data-feather="arrow-left"></i> Back
+                            </a>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                            {% if messages %}
+                                {% for category, message in messages %}
+                                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                                {% endfor %}
+                            {% endif %}
+                        {% endwith %}
+                        
+                        <div class="row">
+                            <div class="col-md-6 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header">Original Image</div>
+                                    <div class="card-body text-center">
+                                        <img src="{{ url_for('static', filename='uploads/' + original_image) }}" 
+                                             class="img-fluid rounded result-image" alt="Original Image">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header">Detected Plates</div>
+                                    <div class="card-body text-center">
+                                        {% if detection_image %}
+                                            <img src="{{ url_for('static', filename='uploads/' + detection_image) }}" 
+                                                 class="img-fluid rounded result-image" alt="Detection Results">
+                                        {% else %}
+                                            <div class="alert alert-warning">
+                                                No license plates detected in the image
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4">
+                            <h5>Recognized License Plates:</h5>
+                            {% if plates and plates|length > 0 %}
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">#</th>
+                                                <th scope="col">License Plate Number</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for plate in plates %}
+                                                <tr>
+                                                    <th scope="row">{{ loop.index }}</th>
+                                                    <td>
+                                                        <span class="badge bg-info fs-5">{{ plate }}</span>
+                                                    </td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            {% else %}
+                                <div class="alert alert-warning">
+                                    No license plates could be recognized in the image.
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="mt-5 py-3 bg-dark text-center text-white-50">
+        <div class="container">
+            <p>Automatic Number Plate Recognition System</p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

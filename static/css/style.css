@@ -1,0 +1,59 @@
+/* Custom styles for ANPR System */
+
+/* Feature icon styling */
+.feature-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 4rem;
+    height: 4rem;
+    margin-bottom: 1rem;
+    font-size: 2rem;
+    color: var(--bs-light);
+    border-radius: 50%;
+    background-color: var(--bs-primary);
+}
+
+/* Result image styling */
+.result-image {
+    max-height: 300px;
+    object-fit: contain;
+}
+
+/* Card hover effect */
+.card {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+}
+
+/* Navbar brand styling */
+.navbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* License plate badge styling */
+.badge.bg-info {
+    letter-spacing: 2px;
+    padding: 8px 16px;
+}
+
+/* Footer styling */
+footer {
+    margin-top: 5rem;
+}
+
+/* Make sure form elements have enough padding */
+.form-control, .btn {
+    padding: 0.5rem 1rem;
+}
+
+/* Ensure text contrast for dark theme */
+body {
+    color: var(--bs-light);
+}
