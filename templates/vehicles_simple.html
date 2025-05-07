@@ -94,15 +94,15 @@
                                     <div class="btn-group" role="group">
                                         <button type="button" class="btn btn-sm btn-outline-primary edit-vehicle-btn" 
                                                 data-bs-toggle="modal" data-bs-target="#editVehicleModal"
-                                                data-vehicle-id="{{ vehicle.id }}"
-                                                data-license-plate="{{ vehicle.license_plate }}"
-                                                data-owner-name="{{ vehicle.owner_name or '' }}"
-                                                data-owner-phone="{{ vehicle.owner_phone or '' }}"
-                                                data-flat-unit="{{ vehicle.flat_unit_number or '' }}"
-                                                data-vehicle-type="{{ vehicle.vehicle_type or '' }}"
-                                                data-status="{{ vehicle.status }}"
-                                                data-is-resident="{{ '1' if vehicle.is_resident else '0' }}"
-                                                data-notes="{{ vehicle.notes or '' }}">
+                                                data-bs-vehicle-id="{{ vehicle.id }}"
+                                                data-bs-license-plate="{{ vehicle.license_plate }}"
+                                                data-bs-owner-name="{{ vehicle.owner_name or '' }}"
+                                                data-bs-owner-phone="{{ vehicle.owner_phone or '' }}"
+                                                data-bs-flat-unit-number="{{ vehicle.flat_unit_number or '' }}"
+                                                data-bs-vehicle-type="{{ vehicle.vehicle_type or '' }}"
+                                                data-bs-status="{{ vehicle.status }}"
+                                                data-bs-is-resident="{{ 'true' if vehicle.is_resident else 'false' }}"
+                                                data-bs-notes="{{ vehicle.notes or '' }}">
                                             <i class="fas fa-edit"></i>
                                         </button>
                                         <a href="{{ url_for('dashboard.vehicle_logs', vehicle_id=vehicle.id) }}" class="btn btn-sm btn-outline-info">
@@ -110,8 +110,8 @@
                                         </a>
                                         <button type="button" class="btn btn-sm btn-outline-danger delete-vehicle-btn"
                                                 data-bs-toggle="modal" data-bs-target="#deleteVehicleModal"
-                                                data-vehicle-id="{{ vehicle.id }}"
-                                                data-license-plate="{{ vehicle.license_plate }}">
+                                                data-bs-vehicle-id="{{ vehicle.id }}"
+                                                data-bs-license-plate="{{ vehicle.license_plate }}">
                                             <i class="fas fa-trash"></i>
                                         </button>
                                     </div>

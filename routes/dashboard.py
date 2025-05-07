@@ -181,7 +181,6 @@ def vehicles():
     )
 
 @dashboard_bp.route('/add_vehicle', methods=['POST'])
-@login_required
 def add_vehicle():
     """Add a new vehicle"""
     try:
@@ -234,7 +233,6 @@ def add_vehicle():
     return secure_redirect('dashboard.vehicles')
 
 @dashboard_bp.route('/edit_vehicle', methods=['POST'])
-@login_required
 def edit_vehicle():
     """Edit an existing vehicle"""
     try:
@@ -303,7 +301,6 @@ def edit_vehicle():
     return secure_redirect('dashboard.vehicles')
 
 @dashboard_bp.route('/delete_vehicle', methods=['POST'])
-@login_required
 def delete_vehicle():
     """Delete a vehicle"""
     try:
@@ -495,7 +492,6 @@ def vehicle_logs(vehicle_id):
     )
 
 @dashboard_bp.route('/settings', methods=['GET', 'POST'])
-@login_required
 def settings():
     """System settings page"""
     if not current_user.is_admin:
