@@ -162,11 +162,30 @@ If using a USB camera:
 - Ensure the application has write access to the static/images/captures directory:
   `sudo chown -R pi:pi ~/anpr_system`
 
+## Recently Implemented Features
+
+1. **Society Name Customization**
+   - Customize the name of your society/community in the system settings
+   - Society name appears in the header and all relevant pages
+   - Settings are persisted in the database
+
+2. **Admin Password Management**
+   - Secure admin password change functionality
+   - Form validation and password confirmation
+   - Secure password hashing
+
+3. **Multi-Camera Configuration**
+   - Support for multiple camera setups
+   - Camera selection UI in the dashboard
+   - API endpoints for camera switching
+   - Configuration management for camera properties
+
 ## Known Issues and Next Steps
 
 1. Token-based authentication still has issues when navigating to the vehicles page - this will be fixed in the next update
 2. Integration with hardware GPIO pins for gate control needs to be configured based on your specific hardware setup
 3. MyGate API integration requires valid API credentials to be configured
+4. When running in mock mode (without actual cameras), the camera selection UI shows placeholder data
 
 ## Contact
 For support or questions, please contact the developer.
