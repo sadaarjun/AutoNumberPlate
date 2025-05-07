@@ -31,7 +31,6 @@ def secure_redirect(endpoint, **kwargs):
     return redirect(url_for(endpoint, **kwargs))
 
 @dashboard_bp.route('/')
-@login_required
 def index():
     """Dashboard home page"""
     try:
