@@ -1,0 +1,304 @@
+{% extends 'base_simple.html' %}
+
+{% block title %}Vehicles Management{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">Vehicle Management</h4>
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addVehicleModal">
+            <i class="fas fa-plus me-1"></i> Add Vehicle
+        </button>
+    </div>
+    <div class="card-body">
+        <!-- Search and filter form -->
+        <form action="{{ url_for('dashboard.vehicles') }}" method="get" class="mb-4">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <div class="input-group">
+                        <input type="text" class="form-control" name="search" value="{{ search }}" placeholder="License plate, owner...">
+                        <button class="btn btn-primary" type="submit">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" name="status" onchange="this.form.submit()">
+                        <option value="" {% if not status %}selected{% endif %}>All Statuses</option>
+                        <option value="active" {% if status == 'active' %}selected{% endif %}>Active</option>
+                        <option value="inactive" {% if status == 'inactive' %}selected{% endif %}>Inactive</option>
+                        <option value="blacklisted" {% if status == 'blacklisted' %}selected{% endif %}>Blacklisted</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" name="type" onchange="this.form.submit()">
+                        <option value="" {% if not type %}selected{% endif %}>All Types</option>
+                        <option value="resident" {% if type == 'resident' %}selected{% endif %}>Resident</option>
+                        <option value="visitor" {% if type == 'visitor' %}selected{% endif %}>Visitor</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <a href="{{ url_for('dashboard.vehicles') }}" class="btn btn-secondary w-100">
+                        <i class="fas fa-sync-alt"></i> Reset
+                    </a>
+                </div>
+            </div>
+        </form>
+        
+        <!-- Vehicles table -->
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>License Plate</th>
+                        <th>Owner</th>
+                        <th>Unit/Flat</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Last Seen</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if vehicles %}
+                        {% for vehicle in vehicles %}
+                            <tr>
+                                <td>{{ vehicle.license_plate }}</td>
+                                <td>{{ vehicle.owner_name or 'N/A' }}</td>
+                                <td>{{ vehicle.flat_unit_number or 'N/A' }}</td>
+                                <td>
+                                    {% if vehicle.is_resident %}
+                                        <span class="badge bg-info">Resident</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Visitor</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if vehicle.status == 'active' %}
+                                        <span class="badge bg-success">Active</span>
+                                    {% elif vehicle.status == 'blacklisted' %}
+                                        <span class="badge bg-danger">Blacklisted</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">{{ vehicle.status|capitalize }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% set last_log = Log.query.filter_by(vehicle_id=vehicle.id).order_by(Log.timestamp.desc()).first() %}
+                                    {% if last_log %}
+                                        {{ last_log.timestamp.strftime('%Y-%m-%d %H:%M') }}
+                                    {% else %}
+                                        Never
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="btn-group" role="group">
+                                        <button type="button" class="btn btn-sm btn-outline-primary edit-vehicle-btn" 
+                                                data-bs-toggle="modal" data-bs-target="#editVehicleModal"
+                                                data-vehicle-id="{{ vehicle.id }}"
+                                                data-license-plate="{{ vehicle.license_plate }}"
+                                                data-owner-name="{{ vehicle.owner_name or '' }}"
+                                                data-owner-phone="{{ vehicle.owner_phone or '' }}"
+                                                data-flat-unit="{{ vehicle.flat_unit_number or '' }}"
+                                                data-vehicle-type="{{ vehicle.vehicle_type or '' }}"
+                                                data-status="{{ vehicle.status }}"
+                                                data-is-resident="{{ '1' if vehicle.is_resident else '0' }}"
+                                                data-notes="{{ vehicle.notes or '' }}">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <a href="{{ url_for('dashboard.vehicle_logs', vehicle_id=vehicle.id) }}" class="btn btn-sm btn-outline-info">
+                                            <i class="fas fa-clipboard-list"></i>
+                                        </a>
+                                        <button type="button" class="btn btn-sm btn-outline-danger delete-vehicle-btn"
+                                                data-bs-toggle="modal" data-bs-target="#deleteVehicleModal"
+                                                data-vehicle-id="{{ vehicle.id }}"
+                                                data-license-plate="{{ vehicle.license_plate }}">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center">No vehicles found</td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        {% if pagination and pagination.pages > 1 %}
+        <nav aria-label="Page navigation" class="mt-4">
+            <ul class="pagination justify-content-center">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="{% if pagination.has_prev %}{{ url_for('dashboard.vehicles', page=pagination.prev_num, search=search, status=status, type=type) }}{% else %}#{% endif %}">Previous</a>
+                </li>
+                {% for page in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
+                    {% if page %}
+                        <li class="page-item {% if page == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('dashboard.vehicles', page=page, search=search, status=status, type=type) }}">{{ page }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link">...</span>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="{% if pagination.has_next %}{{ url_for('dashboard.vehicles', page=pagination.next_num, search=search, status=status, type=type) }}{% else %}#{% endif %}">Next</a>
+                </li>
+            </ul>
+        </nav>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Add Vehicle Modal -->
+<div class="modal fade" id="addVehicleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add New Vehicle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{{ url_for('dashboard.add_vehicle') }}" method="post">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="license_plate" class="form-label">License Plate *</label>
+                        <input type="text" class="form-control" id="license_plate" name="license_plate" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="owner_name" class="form-label">Owner Name</label>
+                        <input type="text" class="form-control" id="owner_name" name="owner_name">
+                    </div>
+                    <div class="mb-3">
+                        <label for="owner_phone" class="form-label">Owner Phone</label>
+                        <input type="text" class="form-control" id="owner_phone" name="owner_phone">
+                    </div>
+                    <div class="mb-3">
+                        <label for="flat_unit_number" class="form-label">Unit/Flat Number</label>
+                        <input type="text" class="form-control" id="flat_unit_number" name="flat_unit_number">
+                    </div>
+                    <div class="mb-3">
+                        <label for="vehicle_type" class="form-label">Vehicle Type</label>
+                        <input type="text" class="form-control" id="vehicle_type" name="vehicle_type">
+                    </div>
+                    <div class="mb-3">
+                        <label for="status" class="form-label">Status</label>
+                        <select class="form-select" id="status" name="status">
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                            <option value="blacklisted">Blacklisted</option>
+                        </select>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="is_resident" name="is_resident">
+                        <label class="form-check-label" for="is_resident">Resident Vehicle</label>
+                    </div>
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="notes" name="notes" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Vehicle</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Vehicle Modal -->
+<div class="modal fade" id="editVehicleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Vehicle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{{ url_for('dashboard.edit_vehicle') }}" method="post">
+                <div class="modal-body">
+                    <input type="hidden" id="edit_vehicle_id" name="vehicle_id">
+                    <div class="mb-3">
+                        <label for="edit_license_plate" class="form-label">License Plate *</label>
+                        <input type="text" class="form-control" id="edit_license_plate" name="license_plate" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_owner_name" class="form-label">Owner Name</label>
+                        <input type="text" class="form-control" id="edit_owner_name" name="owner_name">
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_owner_phone" class="form-label">Owner Phone</label>
+                        <input type="text" class="form-control" id="edit_owner_phone" name="owner_phone">
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_flat_unit_number" class="form-label">Unit/Flat Number</label>
+                        <input type="text" class="form-control" id="edit_flat_unit_number" name="flat_unit_number">
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_vehicle_type" class="form-label">Vehicle Type</label>
+                        <input type="text" class="form-control" id="edit_vehicle_type" name="vehicle_type">
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_status" class="form-label">Status</label>
+                        <select class="form-select" id="edit_status" name="status">
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                            <option value="blacklisted">Blacklisted</option>
+                        </select>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="edit_is_resident" name="is_resident">
+                        <label class="form-check-label" for="edit_is_resident">Resident Vehicle</label>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_notes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="edit_notes" name="notes" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Vehicle Modal -->
+<div class="modal fade" id="deleteVehicleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Deletion</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete the vehicle with license plate <strong id="delete_license_plate"></strong>?</p>
+                <p class="text-danger">This action cannot be undone. All logs associated with this vehicle will remain in the system but will no longer be linked to a vehicle record.</p>
+            </div>
+            <form action="{{ url_for('dashboard.delete_vehicle') }}" method="post">
+                <input type="hidden" id="delete_vehicle_id" name="vehicle_id">
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Delete Vehicle</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block additional_scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize edit vehicle modal
+        initializeEditVehicleModal();
+        
+        // Initialize delete vehicle modal
+        initializeDeleteVehicleModal();
+    });
+</script>
+{% endblock %}

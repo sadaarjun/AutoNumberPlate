@@ -134,7 +134,6 @@ def index():
         return render_template('dashboard_standalone.html', current_year=datetime.now().year)
 
 @dashboard_bp.route('/vehicles')
-@login_required
 def vehicles():
     """Vehicles management page"""
     # Get filter parameters
@@ -171,7 +170,7 @@ def vehicles():
     vehicles = pagination.items
     
     return render_template(
-        'vehicles.html',
+        'vehicles_simple.html',
         vehicles=vehicles,
         pagination=pagination,
         search=search,
