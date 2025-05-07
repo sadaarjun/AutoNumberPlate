@@ -127,7 +127,8 @@ def index():
             auto_refresh=auto_refresh,
             refresh_interval=refresh_interval,
             current_year=datetime.now().year,
-            society_name=current_app.config.get('SYSTEM_CONFIG').get_society_name() if current_app.config.get('SYSTEM_CONFIG') else "ANPR System"
+            society_name=current_app.config.get('SYSTEM_CONFIG').get_society_name() if current_app.config.get('SYSTEM_CONFIG') else "ANPR System",
+            config=current_app.config.get('SYSTEM_CONFIG')  # Pass the config object to the template
         )
     except Exception as e:
         logging.error(f"Error rendering dashboard: {str(e)}")

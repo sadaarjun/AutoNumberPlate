@@ -72,6 +72,58 @@ def stop_anpr():
         logging.error(f"Error stopping ANPR processing: {str(e)}")
         return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
 
+@api_bp.route('/camera/switch', methods=['POST'])
+def switch_camera():
+    """Switch the active camera"""
+    # Temporarily remove login_required check
+    # if not current_user.is_authenticated:
+    #     return jsonify({"success": False, "message": "Authentication required"}), 401
+    
+    camera_id = request.json.get('camera_id')
+    if not camera_id:
+        return jsonify({"success": False, "message": "Camera ID is required"}), 400
+    
+    try:
+        # Get camera manager from app config
+        camera_manager = current_app.config.get('camera_manager')
+        if not camera_manager:
+            return jsonify({"success": False, "message": "Camera manager not found"}), 500
+        
+        # Switch the active camera
+        success = camera_manager.set_active_camera(camera_id)
+        if success:
+            return jsonify({"success": True, "message": f"Switched to camera '{camera_id}'"})
+        else:
+            return jsonify({"success": False, "message": f"Failed to switch to camera '{camera_id}'"}), 400
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@api_bp.route('/camera/list', methods=['GET'])
+def get_camera_list():
+    """Get list of available cameras"""
+    # Temporarily remove login_required check
+    # if not current_user.is_authenticated:
+    #     return jsonify({"success": False, "message": "Authentication required"}), 401
+    
+    try:
+        # Get camera manager from app config
+        camera_manager = current_app.config.get('camera_manager')
+        if not camera_manager:
+            return jsonify({"success": False, "message": "Camera manager not found"}), 500
+        
+        # Get the camera list
+        camera_list = camera_manager.get_camera_list()
+        
+        return jsonify({
+            "success": True, 
+            "cameras": camera_list,
+            "active_camera": camera_manager.active_camera
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
 @api_bp.route('/camera/capture', methods=['GET'])
 @login_required
 def capture_image():
