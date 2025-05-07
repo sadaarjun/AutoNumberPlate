@@ -411,7 +411,7 @@ def logs():
             vehicles_dict[vehicle.id] = vehicle
     
     return render_template(
-        'logs.html',
+        'logs_simple.html',
         logs=logs,
         vehicles=vehicles_dict,
         pagination=pagination,
@@ -426,7 +426,6 @@ def logs():
     )
 
 @dashboard_bp.route('/vehicle_logs/<int:vehicle_id>')
-@login_required
 def vehicle_logs(vehicle_id):
     """Logs for a specific vehicle"""
     # Get vehicle
@@ -481,7 +480,7 @@ def vehicle_logs(vehicle_id):
     logs = pagination.items
     
     return render_template(
-        'vehicle_logs.html',
+        'vehicle_logs_simple.html',
         vehicle=vehicle,
         logs=logs,
         pagination=pagination,

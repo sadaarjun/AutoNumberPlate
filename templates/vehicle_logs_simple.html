@@ -1,0 +1,286 @@
+{% extends 'base_simple.html' %}
+
+{% block title %}Vehicle Logs - {{ vehicle.license_plate }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">Vehicle Logs: {{ vehicle.license_plate }}</h4>
+        <a href="{{ url_for('dashboard.vehicles') }}" class="btn btn-primary">
+            <i class="fas fa-arrow-left me-1"></i> Back to Vehicles
+        </a>
+    </div>
+    <div class="card-body">
+        <!-- Vehicle details -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="fas fa-car me-2"></i>Vehicle Details</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <p><strong>License Plate:</strong> {{ vehicle.license_plate }}</p>
+                                <p><strong>Owner:</strong> {{ vehicle.owner_name or 'N/A' }}</p>
+                                <p><strong>Phone:</strong> {{ vehicle.owner_phone or 'N/A' }}</p>
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong>Unit/Flat:</strong> {{ vehicle.flat_unit_number or 'N/A' }}</p>
+                                <p><strong>Type:</strong> {{ vehicle.vehicle_type or 'N/A' }}</p>
+                                <p><strong>Status:</strong> 
+                                    {% if vehicle.status == 'active' %}
+                                        <span class="badge bg-success">Active</span>
+                                    {% elif vehicle.status == 'blacklisted' %}
+                                        <span class="badge bg-danger">Blacklisted</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">{{ vehicle.status|capitalize }}</span>
+                                    {% endif %}
+                                </p>
+                                <p><strong>Resident:</strong> 
+                                    {% if vehicle.is_resident %}
+                                        <span class="badge bg-info">Yes</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">No</span>
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+                        {% if vehicle.notes %}
+                            <div class="mt-3">
+                                <strong>Notes:</strong>
+                                <p class="mt-1">{{ vehicle.notes }}</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Activity Summary</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <h6>Recent Activity</h6>
+                                    {% set entry_count = Log.query.filter_by(vehicle_id=vehicle.id, event_type='entry').count() %}
+                                    {% set exit_count = Log.query.filter_by(vehicle_id=vehicle.id, event_type='exit').count() %}
+                                    <p>Total Entries: <span class="badge bg-primary">{{ entry_count }}</span></p>
+                                    <p>Total Exits: <span class="badge bg-primary">{{ exit_count }}</span></p>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <h6>Last Seen</h6>
+                                    {% set last_log = Log.query.filter_by(vehicle_id=vehicle.id).order_by(Log.timestamp.desc()).first() %}
+                                    {% if last_log %}
+                                        <p>Date: {{ last_log.timestamp.strftime('%Y-%m-%d') }}</p>
+                                        <p>Time: {{ last_log.timestamp.strftime('%H:%M:%S') }}</p>
+                                        <p>Event: 
+                                            {% if last_log.event_type == 'entry' %}
+                                                <span class="badge bg-success">Entry</span>
+                                            {% elif last_log.event_type == 'exit' %}
+                                                <span class="badge bg-info">Exit</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">{{ last_log.event_type|capitalize }}</span>
+                                            {% endif %}
+                                        </p>
+                                    {% else %}
+                                        <p>No events recorded</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Search and filter form -->
+        <form action="{{ url_for('dashboard.vehicle_logs', vehicle_id=vehicle.id) }}" method="get" class="mb-4">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <select class="form-select" name="event_type" onchange="this.form.submit()">
+                        <option value="" {% if not event_type %}selected{% endif %}>All Events</option>
+                        <option value="entry" {% if event_type == 'entry' %}selected{% endif %}>Entries</option>
+                        <option value="exit" {% if event_type == 'exit' %}selected{% endif %}>Exits</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" name="status" onchange="this.form.submit()">
+                        <option value="" {% if not status %}selected{% endif %}>All Statuses</option>
+                        <option value="success" {% if status == 'success' %}selected{% endif %}>Success</option>
+                        <option value="error" {% if status == 'error' %}selected{% endif %}>Error</option>
+                        <option value="pending" {% if status == 'pending' %}selected{% endif %}>Pending</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <input type="date" class="form-control" name="start_date" value="{{ start_date }}" placeholder="Start Date">
+                </div>
+                <div class="col-md-2">
+                    <input type="date" class="form-control" name="end_date" value="{{ end_date }}" placeholder="End Date">
+                </div>
+                <div class="col-md-1">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+            </div>
+        </form>
+        
+        <!-- Logs table -->
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Event</th>
+                        <th>Confidence</th>
+                        <th>Status</th>
+                        <th>Image</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if logs %}
+                        {% for log in logs %}
+                            <tr>
+                                <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                <td>
+                                    {% if log.event_type == 'entry' %}
+                                        <span class="badge bg-success">Entry</span>
+                                    {% elif log.event_type == 'exit' %}
+                                        <span class="badge bg-info">Exit</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ log.event_type|capitalize }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if log.confidence %}
+                                        <span class="badge {{ utils.get_confidence_color(log.confidence) }}">
+                                            {{ (log.confidence * 100)|round(1) }}%
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">N/A</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if log.status == 'success' %}
+                                        <span class="badge bg-success">Success</span>
+                                    {% elif log.status == 'error' %}
+                                        <span class="badge bg-danger">Error</span>
+                                    {% elif log.status == 'pending' %}
+                                        <span class="badge bg-warning">Pending</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ log.status|capitalize }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if log.image_path %}
+                                        <a href="{{ log.image_path }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-image"></i>
+                                        </a>
+                                    {% else %}
+                                        <span class="text-muted">No image</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-outline-info" 
+                                            data-bs-toggle="modal" 
+                                            data-bs-target="#logDetailsModal-{{ log.id }}">
+                                        <i class="fas fa-info-circle"></i>
+                                    </button>
+                                    
+                                    <!-- Log Details Modal -->
+                                    <div class="modal fade" id="logDetailsModal-{{ log.id }}" tabindex="-1" aria-hidden="true">
+                                        <div class="modal-dialog">
+                                            <div class="modal-content">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title">Log Details: {{ log.license_plate }}</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                </div>
+                                                <div class="modal-body">
+                                                    <div class="row">
+                                                        <div class="col-md-6">
+                                                            <p><strong>Timestamp:</strong> {{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                                                            <p><strong>License Plate:</strong> {{ log.license_plate }}</p>
+                                                            <p><strong>Event Type:</strong> {{ log.event_type|capitalize }}</p>
+                                                            <p><strong>Confidence:</strong> 
+                                                                {% if log.confidence %}
+                                                                    {{ (log.confidence * 100)|round(1) }}%
+                                                                {% else %}
+                                                                    N/A
+                                                                {% endif %}
+                                                            </p>
+                                                            <p><strong>Status:</strong> {{ log.status|capitalize }}</p>
+                                                            <p><strong>MyGate Processed:</strong> {{ 'Yes' if log.processed_by_mygate else 'No' }}</p>
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            {% if log.image_path %}
+                                                                <img src="{{ log.image_path }}" class="img-fluid img-thumbnail" alt="License plate image">
+                                                            {% else %}
+                                                                <div class="alert alert-secondary">No image available</div>
+                                                            {% endif %}
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {% if log.error_message %}
+                                                        <div class="alert alert-danger mt-3">
+                                                            <strong>Error:</strong> {{ log.error_message }}
+                                                        </div>
+                                                    {% endif %}
+                                                    
+                                                    {% if log.mygate_response %}
+                                                        <div class="mt-3">
+                                                            <h6>MyGate Response:</h6>
+                                                            <pre class="bg-dark text-light p-2 rounded"><code>{{ log.mygate_response }}</code></pre>
+                                                        </div>
+                                                    {% endif %}
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center">No logs found</td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        {% if pagination and pagination.pages > 1 %}
+        <nav aria-label="Page navigation" class="mt-4">
+            <ul class="pagination justify-content-center">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="{% if pagination.has_prev %}{{ url_for('dashboard.vehicle_logs', vehicle_id=vehicle.id, page=pagination.prev_num, event_type=event_type, status=status, start_date=start_date, end_date=end_date) }}{% else %}#{% endif %}">Previous</a>
+                </li>
+                {% for page in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
+                    {% if page %}
+                        <li class="page-item {% if page == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('dashboard.vehicle_logs', vehicle_id=vehicle.id, page=page, event_type=event_type, status=status, start_date=start_date, end_date=end_date) }}">{{ page }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link">...</span>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="{% if pagination.has_next %}{{ url_for('dashboard.vehicle_logs', vehicle_id=vehicle.id, page=pagination.next_num, event_type=event_type, status=status, start_date=start_date, end_date=end_date) }}{% else %}#{% endif %}">Next</a>
+                </li>
+            </ul>
+        </nav>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
