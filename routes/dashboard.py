@@ -25,10 +25,10 @@ except ImportError:
 # Create a blueprint for dashboard routes
 dashboard_bp = Blueprint('dashboard', __name__, url_prefix='')
 
-# Helper function to redirect with token - use this instead of redirect(url_for(...))
+# Helper function to redirect with URL
 def secure_redirect(endpoint, **kwargs):
-    """Wrapper for redirect that ensures auth token is included"""
-    return redirect(url_with_token(endpoint, **kwargs))
+    """Wrapper for redirect to endpoint"""
+    return redirect(url_for(endpoint, **kwargs))
 
 @dashboard_bp.route('/')
 @login_required
@@ -113,7 +113,7 @@ def index():
         refresh_interval = 30  # seconds
         
         return render_template(
-            'dashboard.html',
+            'dashboard_standalone.html',
             stats=stats,
             recent_logs=recent_logs,
             anpr_status=anpr_status,
@@ -132,7 +132,7 @@ def index():
     except Exception as e:
         logging.error(f"Error rendering dashboard: {str(e)}")
         flash(f"Error loading dashboard: {str(e)}", "danger")
-        return render_template('dashboard.html', current_year=datetime.now().year)
+        return render_template('dashboard_standalone.html', current_year=datetime.now().year)
 
 @dashboard_bp.route('/vehicles')
 @login_required

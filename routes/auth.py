@@ -258,13 +258,9 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 def login():
     """User login route"""
     # If user is already authenticated, redirect to dashboard
-    # Skip this check when there's no token in the URL - this prevents redirect loops
-    if current_user.is_authenticated and request.args.get('token'):
+    if current_user.is_authenticated:
         logging.debug("User already authenticated, redirecting to dashboard")
-        return redirect(url_with_token('dashboard.index'))
-    elif current_user.is_authenticated and 'auth_token' in session and session['auth_token']:
-        logging.debug("User already authenticated via session, redirecting to dashboard")
-        return redirect(url_with_token('dashboard.index'))
+        return redirect(url_for('dashboard.index'))
     
     if request.method == 'POST':
         username = request.form.get('username')
@@ -338,12 +334,34 @@ def login():
         # Redirect to dashboard with token parameter
         next_page = request.args.get('next')
         
-        # Create a URL with a token parameter
-        token_url = url_for('dashboard.index', token=session['auth_token'])
-        if next_page:
-            token_url = next_page + ('&' if '?' in next_page else '?') + 'token=' + session['auth_token']
+        # Generate a token if it doesn't exist
+        import base64
+        import json
+        import time
         
-        logging.debug(f"Redirecting to URL with token: {token_url[:50]}...")
+        if 'auth_token' not in session:
+            # Create a token with user info
+            token_data = {
+                'id': user.id,
+                'username': user.username,
+                'is_admin': user.is_admin,
+                'timestamp': time.time()
+            }
+            # Convert to JSON string
+            token_json = json.dumps(token_data)
+            # Encode to base64
+            token_bytes = token_json.encode()
+            auth_token = base64.b64encode(token_bytes).decode()
+            # Save to session
+            session['auth_token'] = auth_token
+            logging.debug(f"Created new auth token and saved to session")
+        
+        # Create a URL with a token parameter
+        token_url = url_for('dashboard.index')
+        if next_page:
+            token_url = next_page
+        
+        logging.debug(f"Redirecting to URL: {token_url[:50]}...")
         
         # Create a response with the redirect
         resp = redirect(token_url)
