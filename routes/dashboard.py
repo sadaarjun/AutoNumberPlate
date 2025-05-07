@@ -495,6 +495,55 @@ def vehicle_logs(vehicle_id):
         society_name=current_app.config.get('SYSTEM_CONFIG').get_society_name() if current_app.config.get('SYSTEM_CONFIG') else "ANPR System"
     )
 
+@dashboard_bp.route('/change_admin_password', methods=['POST'])
+def change_admin_password():
+    """Change the admin user password"""
+    current_password = request.form.get('current_password')
+    new_password = request.form.get('new_password')
+    confirm_password = request.form.get('confirm_password')
+    
+    # Validate input
+    if not current_password or not new_password or not confirm_password:
+        flash('All password fields are required', 'danger')
+        return secure_redirect('dashboard.settings')
+    
+    # Check if passwords match
+    if new_password != confirm_password:
+        flash('New passwords do not match', 'danger')
+        return secure_redirect('dashboard.settings')
+    
+    # Check password length
+    if len(new_password) < 8:
+        flash('Password must be at least 8 characters long', 'danger')
+        return secure_redirect('dashboard.settings')
+    
+    try:
+        # Get admin user
+        admin_user = User.query.filter_by(is_admin=True).first()
+        if not admin_user:
+            flash('Admin user not found', 'danger')
+            return secure_redirect('dashboard.settings')
+        
+        # Verify current password
+        from werkzeug.security import check_password_hash, generate_password_hash
+        if not check_password_hash(admin_user.password_hash, current_password):
+            flash('Current password is incorrect', 'danger')
+            return secure_redirect('dashboard.settings')
+        
+        # Update password
+        admin_user.password_hash = generate_password_hash(new_password)
+        db.session.commit()
+        
+        flash('Admin password updated successfully', 'success')
+        logging.info(f"Admin password updated")
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error updating admin password: {str(e)}', 'danger')
+        logging.error(f"Error updating admin password: {str(e)}")
+    
+    return secure_redirect('dashboard.settings')
+    
 @dashboard_bp.route('/settings', methods=['GET', 'POST'])
 def settings():
     """System settings page"""

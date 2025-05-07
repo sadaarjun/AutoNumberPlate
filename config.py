@@ -11,7 +11,19 @@ class Config:
     def __init__(self, config_file='config.json'):
         self.config_file = config_file
         self.default_config = {
-            # Camera settings
+            # Multi-camera settings
+            "cameras": {
+                "enabled": False,  # Enable/disable multi-camera support
+                "active_camera": "main",  # Which camera to use (ID)
+                "camera_list": [
+                    {
+                        "id": "main",
+                        "name": "Main Gate",
+                        "enabled": True
+                    }
+                ]
+            },
+            # Primary camera settings (for backward compatibility)
             "camera": {
                 "resolution": [1920, 1080],
                 "framerate": 30,
@@ -235,6 +247,26 @@ class Config:
     def get_society_name(self):
         """Get the society name"""
         return self.config['system']['society_name']
+        
+    # Multi-camera settings getters
+    def is_multi_camera_enabled(self):
+        """Check if multi-camera support is enabled"""
+        return self.config['cameras']['enabled']
+        
+    def get_active_camera_id(self):
+        """Get the active camera ID"""
+        return self.config['cameras']['active_camera']
+        
+    def get_camera_list(self):
+        """Get the list of cameras"""
+        return self.config['cameras']['camera_list']
+        
+    def get_camera_by_id(self, camera_id):
+        """Get a specific camera configuration by ID"""
+        for camera in self.config['cameras']['camera_list']:
+            if camera['id'] == camera_id:
+                return camera
+        return None
     
     def update_setting(self, key, value):
         """Update a setting value"""
