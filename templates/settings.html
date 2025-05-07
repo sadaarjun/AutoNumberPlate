@@ -20,6 +20,105 @@
         </div>
         <div class="card-body">
             <form id="settingsForm" method="POST" action="{{ url_with_token('dashboard.settings') }}">
+                <!-- Multi-Camera Settings -->
+                <div class="settings-section">
+                    <h4 class="settings-header"><i class="bi bi-camera-video me-2"></i>Multi-Camera Settings</h4>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3 form-check form-switch mt-2">
+                                <input type="checkbox" class="form-check-input" id="multi_camera_enabled" name="multi_camera_enabled" 
+                                       {% if config and config.is_multi_camera_enabled() %}checked{% endif %}>
+                                <label class="form-check-label" for="multi_camera_enabled">Enable Multi-Camera Support</label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="cameraListSection" class="mt-3 {% if not config or not config.is_multi_camera_enabled() %}d-none{% endif %}">
+                        <h5><i class="bi bi-list-check me-2"></i>Camera List</h5>
+                        
+                        <div class="table-responsive">
+                            <table class="table table-striped table-bordered">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Name</th>
+                                        <th>Enabled</th>
+                                        <th>Active</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cameraListBody">
+                                    {% if config and config.get_camera_list() %}
+                                        {% for camera in config.get_camera_list() %}
+                                        <tr>
+                                            <td>{{ camera.id }}</td>
+                                            <td>{{ camera.name }}</td>
+                                            <td>
+                                                <div class="form-check form-switch">
+                                                    <input type="checkbox" class="form-check-input camera-enabled" 
+                                                           data-camera-id="{{ camera.id }}" 
+                                                           name="camera_enabled_{{ camera.id }}" 
+                                                           {% if camera.enabled %}checked{% endif %}>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="form-check">
+                                                    <input type="radio" class="form-check-input camera-active" 
+                                                           data-camera-id="{{ camera.id }}" 
+                                                           name="active_camera" value="{{ camera.id }}" 
+                                                           {% if config.get_active_camera_id() == camera.id %}checked{% endif %}>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <button type="button" class="btn btn-sm btn-outline-primary edit-camera" 
+                                                        data-camera-id="{{ camera.id }}" data-camera-name="{{ camera.name }}">
+                                                    <i class="bi bi-pencil"></i> Edit
+                                                </button>
+                                                {% if camera.id != 'main' %}
+                                                <button type="button" class="btn btn-sm btn-outline-danger delete-camera" 
+                                                        data-camera-id="{{ camera.id }}">
+                                                    <i class="bi bi-trash"></i> Delete
+                                                </button>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                            <button type="button" class="btn btn-primary" id="addCameraBtn">
+                                <i class="bi bi-plus-circle me-2"></i>Add Camera
+                            </button>
+                        </div>
+                        
+                        <!-- Camera Edit Modal -->
+                        <div class="modal fade" id="cameraEditModal" tabindex="-1" aria-hidden="true">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title" id="cameraModalTitle">Edit Camera</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <input type="hidden" id="camera_id" name="camera_id">
+                                        <div class="mb-3">
+                                            <label for="camera_name" class="form-label">Camera Name</label>
+                                            <input type="text" class="form-control" id="camera_name" name="camera_name" required>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                        <button type="button" class="btn btn-primary" id="saveCameraBtn">Save</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
                 <!-- Camera Settings -->
                 <div class="settings-section">
                     <h4 class="settings-header"><i class="bi bi-camera me-2"></i>Camera Settings</h4>
@@ -295,6 +394,124 @@ function getApiUrl(endpoint) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Multi-Camera Settings
+    const multiCameraEnabled = document.getElementById('multi_camera_enabled');
+    const cameraListSection = document.getElementById('cameraListSection');
+    
+    if (multiCameraEnabled && cameraListSection) {
+        multiCameraEnabled.addEventListener('change', function() {
+            if (this.checked) {
+                cameraListSection.classList.remove('d-none');
+            } else {
+                cameraListSection.classList.add('d-none');
+            }
+        });
+    }
+    
+    // Camera Edit Modal
+    const cameraEditModal = new bootstrap.Modal(document.getElementById('cameraEditModal'), {});
+    const cameraEditButtons = document.querySelectorAll('.edit-camera');
+    const addCameraBtn = document.getElementById('addCameraBtn');
+    const saveCameraBtn = document.getElementById('saveCameraBtn');
+    
+    // Edit camera button click
+    cameraEditButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const cameraId = this.dataset.cameraId;
+            const cameraName = this.dataset.cameraName;
+            
+            document.getElementById('cameraModalTitle').textContent = 'Edit Camera';
+            document.getElementById('camera_id').value = cameraId;
+            document.getElementById('camera_name').value = cameraName;
+            
+            cameraEditModal.show();
+        });
+    });
+    
+    // Add camera button click
+    if (addCameraBtn) {
+        addCameraBtn.addEventListener('click', function() {
+            document.getElementById('cameraModalTitle').textContent = 'Add New Camera';
+            document.getElementById('camera_id').value = '';
+            document.getElementById('camera_name').value = '';
+            
+            cameraEditModal.show();
+        });
+    }
+    
+    // Save camera button click
+    if (saveCameraBtn) {
+        saveCameraBtn.addEventListener('click', function() {
+            const cameraId = document.getElementById('camera_id').value;
+            const cameraName = document.getElementById('camera_name').value;
+            
+            if (!cameraName) {
+                showAlert('Camera name is required', 'danger');
+                return;
+            }
+            
+            // We'll handle this in the backend
+            // For now, just submit the form
+            const form = document.getElementById('settingsForm');
+            
+            // Add hidden fields for camera data
+            let cameraIdInput = document.createElement('input');
+            cameraIdInput.type = 'hidden';
+            cameraIdInput.name = 'camera_action';
+            cameraIdInput.value = cameraId ? 'edit' : 'add';
+            form.appendChild(cameraIdInput);
+            
+            let cameraIdField = document.createElement('input');
+            cameraIdField.type = 'hidden';
+            cameraIdField.name = 'camera_action_id';
+            cameraIdField.value = cameraId ? cameraId : '';
+            form.appendChild(cameraIdField);
+            
+            let cameraNameField = document.createElement('input');
+            cameraNameField.type = 'hidden';
+            cameraNameField.name = 'camera_action_name';
+            cameraNameField.value = cameraName;
+            form.appendChild(cameraNameField);
+            
+            // Submit the form
+            form.submit();
+            
+            // Close modal
+            cameraEditModal.hide();
+        });
+    }
+    
+    // Delete camera buttons
+    const deleteCameraButtons = document.querySelectorAll('.delete-camera');
+    
+    deleteCameraButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const cameraId = this.dataset.cameraId;
+            
+            if (confirm(`Are you sure you want to delete camera ${cameraId}?`)) {
+                // We'll handle this in the backend
+                // For now, just submit the form
+                const form = document.getElementById('settingsForm');
+                
+                // Add hidden field for camera deletion
+                let deleteInput = document.createElement('input');
+                deleteInput.type = 'hidden';
+                deleteInput.name = 'camera_action';
+                deleteInput.value = 'delete';
+                form.appendChild(deleteInput);
+                
+                let cameraIdField = document.createElement('input');
+                cameraIdField.type = 'hidden';
+                cameraIdField.name = 'camera_action_id';
+                cameraIdField.value = cameraId;
+                form.appendChild(cameraIdField);
+                
+                // Submit the form
+                form.submit();
+            }
+        });
+    });
+    
     // Admin Password Form Validation
     const adminPasswordForm = document.getElementById('adminPasswordForm');
     if (adminPasswordForm) {

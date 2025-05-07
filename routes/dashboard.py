@@ -628,6 +628,101 @@ def settings():
             flash('Settings updated successfully', 'success')
             logging.info(f"System settings updated")
             
+            # Multi-camera settings
+            multi_camera_enabled = True if request.form.get('multi_camera_enabled') else False
+            config.update_setting('cameras.enabled', multi_camera_enabled)
+            
+            # Handle camera list actions (add, edit, delete)
+            camera_action = request.form.get('camera_action')
+            if camera_action:
+                camera_id = request.form.get('camera_action_id')
+                
+                if camera_action == 'add':
+                    # Add a new camera
+                    camera_name = request.form.get('camera_action_name')
+                    if camera_name:
+                        # Generate a unique ID based on timestamp
+                        import time
+                        new_id = f"camera_{int(time.time())}"
+                        
+                        # Get current camera list
+                        camera_list = config.get_camera_list()
+                        
+                        # Add new camera
+                        camera_list.append({
+                            "id": new_id,
+                            "name": camera_name,
+                            "enabled": True
+                        })
+                        
+                        # Update camera list
+                        config.update_setting('cameras.camera_list', camera_list)
+                        flash(f'Camera "{camera_name}" added successfully', 'success')
+                
+                elif camera_action == 'edit' and camera_id:
+                    # Edit existing camera
+                    camera_name = request.form.get('camera_action_name')
+                    if camera_name:
+                        # Get current camera list
+                        camera_list = config.get_camera_list()
+                        
+                        # Find and update camera
+                        for camera in camera_list:
+                            if camera['id'] == camera_id:
+                                camera['name'] = camera_name
+                                break
+                        
+                        # Update camera list
+                        config.update_setting('cameras.camera_list', camera_list)
+                        flash(f'Camera "{camera_name}" updated successfully', 'success')
+                
+                elif camera_action == 'delete' and camera_id:
+                    # Delete camera (except main camera)
+                    if camera_id != 'main':
+                        # Get current camera list
+                        camera_list = config.get_camera_list()
+                        
+                        # Find camera to delete
+                        for i, camera in enumerate(camera_list):
+                            if camera['id'] == camera_id:
+                                # Check if this is the active camera
+                                if config.get_active_camera_id() == camera_id:
+                                    # Set main as active
+                                    config.update_setting('cameras.active_camera', 'main')
+                                
+                                # Remove camera
+                                del camera_list[i]
+                                break
+                        
+                        # Update camera list
+                        config.update_setting('cameras.camera_list', camera_list)
+                        flash(f'Camera deleted successfully', 'success')
+                    else:
+                        flash('Cannot delete the main camera', 'warning')
+            
+            # Update active camera if selected
+            active_camera = request.form.get('active_camera')
+            if active_camera:
+                config.update_setting('cameras.active_camera', active_camera)
+            
+            # Check if any camera was enabled/disabled
+            for key in request.form:
+                if key.startswith('camera_enabled_'):
+                    camera_id = key.replace('camera_enabled_', '')
+                    enabled = True if request.form.get(key) else False
+                    
+                    # Get current camera list
+                    camera_list = config.get_camera_list()
+                    
+                    # Find and update camera
+                    for camera in camera_list:
+                        if camera['id'] == camera_id:
+                            camera['enabled'] = enabled
+                            break
+                    
+                    # Update camera list
+                    config.update_setting('cameras.camera_list', camera_list)
+            
             # Check if camera needs to be reinitialized
             camera_settings_changed = any([
                 request.form.get('camera_resolution_width'),
