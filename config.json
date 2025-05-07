@@ -1,6 +1,9 @@
 {
     "camera": {
-        "resolution": "[1920, 1080]",
+        "resolution": [
+            1920,
+            1280
+        ],
         "framerate": 30,
         "rotation": 0,
         "continuous_capture": true,

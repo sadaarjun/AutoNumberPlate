@@ -103,7 +103,6 @@ def capture_image():
         return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
 
 @api_bp.route('/logs/recent', methods=['GET'])
-@login_required
 def get_recent_logs():
     """Get recent log entries and return as HTML for AJAX updates"""
     try:
@@ -120,7 +119,6 @@ def get_recent_logs():
         return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
 
 @api_bp.route('/logs/today', methods=['GET'])
-@login_required
 def get_today_logs():
     """Get today's logs, optionally filtered by event type"""
     try:
@@ -155,7 +153,6 @@ def get_today_logs():
         return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
 
 @api_bp.route('/stats', methods=['GET'])
-@login_required
 def get_stats():
     """Get system statistics"""
     try:
@@ -167,7 +164,6 @@ def get_stats():
         return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
 
 @api_bp.route('/stats/daily_traffic', methods=['GET'])
-@login_required
 def get_daily_traffic():
     """Get daily traffic data for charts"""
     try:
@@ -215,7 +211,6 @@ def get_daily_traffic():
         return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
 
 @api_bp.route('/stats/recognition_accuracy', methods=['GET'])
-@login_required
 def get_recognition_accuracy():
     """Get recognition accuracy data for charts"""
     try:
@@ -236,7 +231,6 @@ def get_recognition_accuracy():
         return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
 
 @api_bp.route('/vehicles/search', methods=['GET'])
-@login_required
 def search_vehicles_api():
     """Search vehicles API endpoint"""
     try:
@@ -260,11 +254,11 @@ def search_vehicles_api():
         return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
 
 @api_bp.route('/settings/update', methods=['POST'])
-@login_required
 def update_settings():
     """Update system settings"""
-    if not current_user.is_admin:
-        return jsonify({"success": False, "message": "Admin privileges required"}), 403
+    # Temporarily disable admin check
+    # if not current_user.is_admin:
+    #     return jsonify({"success": False, "message": "Admin privileges required"}), 403
     
     try:
         # Get settings data from request
