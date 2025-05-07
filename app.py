@@ -10,6 +10,8 @@ import numpy as np
 
 from forms import LoginForm, RegistrationForm
 from models import db, User, PlateDetection
+from routes.auth import auth_bp
+from routes.dashboard import dashboard_bp
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -27,7 +29,7 @@ db.init_app(app)
 # Configure Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'admin_login'
+login_manager.login_view = 'auth.login'
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -234,6 +236,10 @@ def create_tables():
             db.session.add(admin)
             db.session.commit()
             logger.info('Admin user created')
+
+# Register blueprints
+app.register_blueprint(auth_bp)
+app.register_blueprint(dashboard_bp)
 
 # Call the initialization function
 create_tables()
