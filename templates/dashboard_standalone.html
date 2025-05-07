@@ -39,15 +39,31 @@
                                             </li>
                                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                                 Today's Entries
-                                                <span id="today-entries" class="badge bg-primary">0</span>
+                                                <span id="today-entries" class="badge bg-primary">
+                                                    <h1 class="display-4 text-success">{{ stats.today_entries|default(0) }}</h1>
+                                                </span>
                                             </li>
                                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                                 Today's Exits
-                                                <span id="today-exits" class="badge bg-primary">0</span>
+                                                <span id="today-exits" class="badge bg-primary">
+                                                    <h1 class="display-4 text-warning">{{ stats.today_exits|default(0) }}</h1>
+                                                </span>
                                             </li>
                                             <li class="list-group-item d-flex justify-content-between align-items-center">
-                                                Registered Vehicles
-                                                <span id="registered-vehicles" class="badge bg-primary">0</span>
+                                                Total Vehicles
+                                                <span id="total-vehicles" class="badge bg-primary"><h5>{{ stats.total_vehicles|default(0) }}</h5></span>
+                                            </li>
+                                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                Resident Vehicles
+                                                <span id="resident-vehicles" class="badge bg-primary"><h5>{{ stats.resident_vehicles|default(0) }}</h5></span>
+                                            </li>
+                                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                Success Rate
+                                                <span id="success-rate" class="badge bg-primary"><h5>{{ (stats.success_count / stats.total_logs * 100)|round|int if stats.total_logs else 0 }}%</h5></span>
+                                            </li>
+                                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                                Disk Usage
+                                                <span id="disk-usage" class="badge bg-primary"><h5>{{ stats.disk_usage.percent_used|default(0) if stats.disk_usage else 0 }}%</h5></span>
                                             </li>
                                         </ul>
                                     </div>
@@ -66,33 +82,49 @@
                                 </div>
                             </div>
                         </div>
-                        
-                        <div class="row mt-4">
-                            <!-- Recent Logs -->
-                            <div class="col-md-12">
-                                <div class="card">
-                                    <div class="card-header bg-primary text-white">
-                                        <h5 class="mb-0"><i class="fas fa-list me-2"></i>Recent Activity</h5>
-                                    </div>
-                                    <div class="card-body p-0">
-                                        <div id="recent-logs-container">
-                                            <!-- Logs will be loaded here via AJAX -->
-                                            <div class="text-center py-4">
-                                                <div class="spinner-border text-primary" role="status">
-                                                    <span class="visually-hidden">Loading...</span>
-                                                </div>
-                                                <p class="mt-2">Loading recent logs...</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="card-footer text-center">
-                                        <a href="{{ url_for('dashboard.logs') }}" class="btn btn-outline-primary btn-sm">
-                                            <i class="fas fa-eye me-1"></i> View All Logs
-                                        </a>
-                                    </div>
-                                </div>
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                                <h4 class="mb-0"><i class="fas fa-list-alt me-2"></i>Recent Activity</h4>
+                                <a href="{{ url_for('dashboard.logs') }}" class="btn btn-sm btn-light">View All</a>
+                            </div>
+                            <div class="card-body table-responsive" id="recent-logs-container">
+                                <table class="table table-hover align-middle">
+                                    <thead>
+                                    <tr>
+                                        <th>License Plate</th>
+                                        <th>Event</th>
+                                        <th>Timestamp</th>
+                                        <th>Status</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody>
+                                    {% if recent_logs %}
+                                    {% for log in recent_logs %}
+                                    <tr>
+                                        <td><strong>{{ log.license_plate }}</strong></td>
+                                        <td>
+                                        <span class="badge bg-{{ 'success' if log.event_type == 'entry' else 'warning' }}">
+                                            {{ log.event_type|title }}
+                                        </span>
+                                        </td>
+                                        <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                        <td>
+                                        <span class="badge bg-{{ 'success' if log.status == 'success' else ('danger' if log.status == 'error' else 'secondary') }}">
+                                            {{ log.status|title }}
+                                        </span>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                    {% else %}
+                                    <tr>
+                                        <td colspan="4" class="text-center">No recent activities</td>
+                                    </tr>
+                                    {% endif %}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
+
                     </div>
                 </div>
             </div>

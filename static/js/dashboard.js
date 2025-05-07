@@ -33,6 +33,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize vehicle delete modal functionality
     initializeDeleteVehicleModal();
+
+    // Load today's stats
+    loadTodayStats();
 });
 
 /**
@@ -55,7 +58,7 @@ function initializeLogUpdates() {
                     console.error('Error fetching logs:', error);
                 });
         }
-        
+
         // Refresh logs every 10 seconds
         setInterval(refreshLogs, 10000);
     }
@@ -66,12 +69,12 @@ function initializeLogUpdates() {
  */
 function initializeAnprToggle() {
     const anprToggleBtn = document.getElementById('anprToggleBtn');
-    
+
     if (anprToggleBtn) {
         anprToggleBtn.addEventListener('click', function() {
             const isRunning = anprToggleBtn.classList.contains('btn-danger');
             const url = isRunning ? '/api/anpr/stop' : '/api/anpr/start';
-            
+
             fetch(getApiUrl(url), {
                 method: 'POST',
                 headers: {
@@ -82,10 +85,10 @@ function initializeAnprToggle() {
             .then(data => {
                 if (data.success) {
                     showAlert(data.message, 'success');
-                    
+
                     // Update button state
                     updateAnprStatus(!isRunning);
-                    
+
                     // Refresh page after short delay
                     setTimeout(() => {
                         window.location.reload();
@@ -109,7 +112,7 @@ function initializeAnprToggle() {
 function updateAnprStatus(isRunning) {
     const anprToggleBtn = document.getElementById('anprToggleBtn');
     if (!anprToggleBtn) return;
-    
+
     if (isRunning) {
         anprToggleBtn.classList.remove('btn-success');
         anprToggleBtn.classList.add('btn-danger');
@@ -135,7 +138,7 @@ function showAlert(message, type) {
         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
     `;
     document.body.appendChild(alertContainer);
-    
+
     // Auto dismiss after 5 seconds
     setTimeout(() => {
         alertContainer.remove();
@@ -148,13 +151,13 @@ function showAlert(message, type) {
 function initializeCharts() {
     // Only initialize if Chart.js is available and containers exist
     if (typeof Chart === 'undefined') return;
-    
+
     // Traffic chart initialization
     const trafficChartContainer = document.getElementById('traffic-chart');
     if (trafficChartContainer) {
         initializeTrafficChart();
     }
-    
+
     // Accuracy chart initialization
     const accuracyChartContainer = document.getElementById('accuracy-chart');
     if (accuracyChartContainer) {
@@ -171,7 +174,7 @@ function initializeTrafficChart() {
         .then(response => response.json())
         .then(data => {
             if (!data.success) return;
-            
+
             const ctx = document.getElementById('traffic-chart').getContext('2d');
             new Chart(ctx, {
                 type: 'bar',
@@ -222,7 +225,7 @@ function initializeAccuracyChart() {
         .then(response => response.json())
         .then(data => {
             if (!data.success) return;
-            
+
             const ctx = document.getElementById('accuracy-chart').getContext('2d');
             new Chart(ctx, {
                 type: 'doughnut',
@@ -267,11 +270,11 @@ function initializeAccuracyChart() {
 function initializeEditVehicleModal() {
     const editModal = document.getElementById('editVehicleModal');
     if (!editModal) return;
-    
+
     editModal.addEventListener('show.bs.modal', function (event) {
         // Button that triggered the modal
         const button = event.relatedTarget;
-        
+
         // Extract info from data attributes
         const vehicleId = button.getAttribute('data-bs-vehicle-id');
         const licensePlate = button.getAttribute('data-bs-license-plate');
@@ -282,7 +285,7 @@ function initializeEditVehicleModal() {
         const status = button.getAttribute('data-bs-status');
         const isResident = button.getAttribute('data-bs-is-resident') === 'true';
         const notes = button.getAttribute('data-bs-notes');
-        
+
         // Update the modal's content
         const modalVehicleId = editModal.querySelector('#edit_vehicle_id');
         const modalLicensePlate = editModal.querySelector('#edit_license_plate');
@@ -293,29 +296,29 @@ function initializeEditVehicleModal() {
         const modalStatus = editModal.querySelector('#edit_status');
         const modalIsResident = editModal.querySelector('#edit_is_resident');
         const modalNotes = editModal.querySelector('#edit_notes');
-        
+
         // Set values in form fields
         modalVehicleId.value = vehicleId;
         modalLicensePlate.value = licensePlate;
         modalOwnerName.value = ownerName;
         modalOwnerPhone.value = ownerPhone;
         modalFlatUnitNumber.value = flatUnitNumber;
-        
+
         // Set select options
         if (vehicleType) {
             modalVehicleType.value = vehicleType;
         }
-        
+
         if (status) {
             modalStatus.value = status;
         }
-        
+
         // Set checkbox
         modalIsResident.checked = isResident;
-        
+
         // Set textarea
         modalNotes.value = notes;
-        
+
         // Update form action if needed
         // const form = editModal.querySelector('form');
         // form.action already points to the correct URL in template
@@ -325,6 +328,94 @@ function initializeEditVehicleModal() {
 /**
  * Initialize delete vehicle modal
  */
+/**
+ * Load today's statistics from the API
+ */
+function loadTodayStats() {
+    // Find entry/exit counters and other stats elements
+    const entriesCounter = document.querySelector('.card-body h1.text-success');
+    const exitsCounter = document.querySelector('.card-body h1.text-warning');
+
+    // Find stats elements by looking for elements with the specific text content
+    let totalVehiclesEl = null;
+    let residentVehiclesEl = null;
+
+    // Get all small text elements
+    const smallElements = document.querySelectorAll('.small.text-muted');
+    smallElements.forEach(el => {
+        if (el.textContent.trim() === 'Total Vehicles') {
+            totalVehiclesEl = el.nextElementSibling;
+        } else if (el.textContent.trim() === 'Resident Vehicles') {
+            residentVehiclesEl = el.nextElementSibling;
+        }
+    });
+
+    if (!entriesCounter && !exitsCounter) return; // Skip if not on dashboard
+
+    // Fetch stats from API
+    fetch(getApiUrl('/api/stats'))
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.stats) {
+                // Update entries/exits
+                if (entriesCounter) entriesCounter.textContent = data.stats.today_entries || 0;
+                if (exitsCounter) exitsCounter.textContent = data.stats.today_exits || 0;
+
+                // Update other stats if elements exist
+                if (totalVehiclesEl) totalVehiclesEl.textContent = data.stats.total_vehicles || 0;
+                if (residentVehiclesEl) residentVehiclesEl.textContent = data.stats.resident_vehicles || 0;
+            }
+        })
+        .catch(error => {
+            console.error('Error loading today\'s stats:', error);
+        });
+
+    // Also load today's logs for display
+    fetch(getApiUrl('/api/logs/today'))
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.logs && data.logs.length > 0) {
+                // Find recent logs container
+                const recentLogsContainer = document.getElementById('recent-logs-container');
+                if (recentLogsContainer) {
+                    // Clear existing logs
+                    const tableBody = recentLogsContainer.querySelector('tbody');
+                    if (tableBody) {
+                        // Create HTML for logs
+                        let logsHtml = '';
+                        data.logs.forEach(log => {
+                            const eventClass = log.event_type === 'entry' ? 'success' : 'warning';
+                            const statusClass = log.status === 'success' ? 'success' :
+                                              (log.status === 'error' ? 'danger' : 'secondary');
+
+                            logsHtml += `
+                                <tr>
+                                    <td><strong>${log.license_plate}</strong></td>
+                                    <td>
+                                        <span class="badge bg-${eventClass}">
+                                            ${log.event_type.charAt(0).toUpperCase() + log.event_type.slice(1)}
+                                        </span>
+                                    </td>
+                                    <td>${log.timestamp}</td>
+                                    <td>
+                                        <span class="badge bg-${statusClass}">
+                                            ${log.status.charAt(0).toUpperCase() + log.status.slice(1)}
+                                        </span>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+
+                        tableBody.innerHTML = logsHtml;
+                    }
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error loading today\'s logs:', error);
+        });
+}
+
 function initializeDeleteVehicleModal() {
     const deleteModal = document.getElementById('deleteVehicleModal');
     if (!deleteModal) return;
