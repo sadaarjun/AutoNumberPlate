@@ -347,7 +347,6 @@ def delete_vehicle():
     return secure_redirect('dashboard.vehicles')
 
 @dashboard_bp.route('/logs')
-@login_required
 def logs():
     """Logs page"""
     # Get filter parameters

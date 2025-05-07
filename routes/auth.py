@@ -394,7 +394,7 @@ def login():
         return resp
     
     # GET request - render login form
-    return render_template('login_standalone.html', current_year=datetime.now().year)
+    return render_template('login_simple.html', current_year=datetime.now().year)
 
 @auth_bp.route('/logout')
 @login_required
