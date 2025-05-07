@@ -126,7 +126,8 @@ def index():
             log_retention=log_retention,
             auto_refresh=auto_refresh,
             refresh_interval=refresh_interval,
-            current_year=datetime.now().year
+            current_year=datetime.now().year,
+            society_name=current_app.config.get('SYSTEM_CONFIG').get_society_name() if current_app.config.get('SYSTEM_CONFIG') else "ANPR System"
         )
     except Exception as e:
         logging.error(f"Error rendering dashboard: {str(e)}")
@@ -177,7 +178,8 @@ def vehicles():
         status=status,
         type=type_filter,
         Log=Log,  # Pass the Log model to the template
-        current_year=datetime.now().year
+        current_year=datetime.now().year,
+        society_name=current_app.config.get('SYSTEM_CONFIG').get_society_name() if current_app.config.get('SYSTEM_CONFIG') else "ANPR System"
     )
 
 @dashboard_bp.route('/add_vehicle', methods=['POST'])
@@ -419,7 +421,8 @@ def logs():
         end_date=end_date_str,
         current_date=datetime.now().strftime('%Y-%m-%d'),
         current_year=datetime.now().year,
-        utils=utils  # Pass the utils module to the template
+        utils=utils,  # Pass the utils module to the template
+        society_name=current_app.config.get('SYSTEM_CONFIG').get_society_name() if current_app.config.get('SYSTEM_CONFIG') else "ANPR System"
     )
 
 @dashboard_bp.route('/vehicle_logs/<int:vehicle_id>')
@@ -488,7 +491,8 @@ def vehicle_logs(vehicle_id):
         Log=Log,  # Pass the Log model to the template
         current_date=datetime.now().strftime('%Y-%m-%d'),
         current_year=datetime.now().year,
-        utils=utils  # Pass the utils module to the template
+        utils=utils,  # Pass the utils module to the template
+        society_name=current_app.config.get('SYSTEM_CONFIG').get_society_name() if current_app.config.get('SYSTEM_CONFIG') else "ANPR System"
     )
 
 @dashboard_bp.route('/settings', methods=['GET', 'POST'])
@@ -567,6 +571,10 @@ def settings():
             image_retention_days = request.form.get('image_retention_days', type=int)
             if image_retention_days is not None:
                 config.update_setting('system.image_retention_days', image_retention_days)
+                
+            society_name = request.form.get('society_name')
+            if society_name:
+                config.update_setting('system.society_name', society_name)
             
             flash('Settings updated successfully', 'success')
             logging.info(f"System settings updated")
@@ -658,5 +666,6 @@ def settings():
         settings=settings_dict,
         env_vars=env_vars,
         config=config,
-        current_year=datetime.now().year
+        current_year=datetime.now().year,
+        society_name=config.get_society_name() if config else "ANPR System"
     )

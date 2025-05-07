@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}ANPR System{% endblock %}</title>
+    <title>{% block title %}{{ society_name }}{% endblock %}</title>
     
     <!-- Bootstrap CSS (Replit theme) -->
     <link rel="stylesheet" href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css">
@@ -21,7 +21,7 @@
     <nav class="navbar navbar-expand-md navbar-dark bg-dark mb-4">
         <div class="container-fluid">
             <a class="navbar-brand" href="{% if url_with_token is defined %}{{ url_with_token('dashboard.index') }}{% else %}{{ url_for('dashboard.index') }}{% endif %}">
-                <i class="fas fa-video me-2"></i>ANPR System
+                <i class="fas fa-video me-2"></i>{{ society_name }}
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse">
                 <span class="navbar-toggler-icon"></span>
@@ -104,7 +104,7 @@
     <!-- Footer -->
     <footer class="footer mt-auto py-3 bg-dark">
         <div class="container text-center">
-            <span class="text-muted">© {{ current_year }} ANPR System</span>
+            <span class="text-muted">© {{ current_year }} {{ society_name }}</span>
         </div>
     </footer>
 
