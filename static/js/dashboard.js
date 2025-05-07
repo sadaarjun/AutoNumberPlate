@@ -316,9 +316,9 @@ function initializeEditVehicleModal() {
         // Set textarea
         modalNotes.value = notes;
         
-        // Update form action to include token
-        const form = editModal.querySelector('form');
-        form.action = getApiUrl('/edit_vehicle');
+        // Update form action if needed
+        // const form = editModal.querySelector('form');
+        // form.action already points to the correct URL in template
     });
 }
 
@@ -339,15 +339,15 @@ function initializeDeleteVehicleModal() {
         
         // Update the modal's content
         const modalVehicleId = deleteModal.querySelector('#delete_vehicle_id');
-        const modalLicensePlateText = deleteModal.querySelector('#delete_license_plate_text');
+        const modalLicensePlateText = deleteModal.querySelector('#delete_license_plate');
         
         modalVehicleId.value = vehicleId;
         if (modalLicensePlateText) {
             modalLicensePlateText.textContent = licensePlate;
         }
         
-        // Update form action to include token
-        const form = deleteModal.querySelector('form');
-        form.action = getApiUrl('/delete_vehicle');
+        // Update form action if needed
+        // const form = deleteModal.querySelector('form');
+        // form.action already points to the correct URL in template
     });
 }

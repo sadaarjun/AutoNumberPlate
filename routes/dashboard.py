@@ -223,7 +223,7 @@ def add_vehicle():
         db.session.commit()
         
         flash(f'Vehicle {license_plate} added successfully', 'success')
-        logging.info(f"User {current_user.username} added vehicle: {license_plate}")
+        logging.info(f"Added vehicle: {license_plate}")
         
     except Exception as e:
         db.session.rollback()
@@ -291,7 +291,7 @@ def edit_vehicle():
         db.session.commit()
         
         flash(f'Vehicle {license_plate} updated successfully', 'success')
-        logging.info(f"User {current_user.username} updated vehicle: {license_plate}")
+        logging.info(f"Updated vehicle: {license_plate}")
         
     except Exception as e:
         db.session.rollback()
@@ -334,7 +334,7 @@ def delete_vehicle():
         db.session.commit()
         
         flash(f'Vehicle {license_plate} deleted successfully', 'success')
-        logging.info(f"User {current_user.username} deleted vehicle: {license_plate}")
+        logging.info(f"Deleted vehicle: {license_plate}")
         
     except Exception as e:
         db.session.rollback()
@@ -494,9 +494,10 @@ def vehicle_logs(vehicle_id):
 @dashboard_bp.route('/settings', methods=['GET', 'POST'])
 def settings():
     """System settings page"""
-    if not current_user.is_admin:
-        flash('You do not have permission to access settings', 'danger')
-        return secure_redirect('dashboard.index')
+    # Temporarily remove admin check
+    # if not current_user.is_admin:
+    #     flash('You do not have permission to access settings', 'danger')
+    #     return secure_redirect('dashboard.index')
     
     if request.method == 'POST':
         try:
@@ -568,7 +569,7 @@ def settings():
                 config.update_setting('system.image_retention_days', image_retention_days)
             
             flash('Settings updated successfully', 'success')
-            logging.info(f"System settings updated by user {current_user.username}")
+            logging.info(f"System settings updated")
             
             # Check if camera needs to be reinitialized
             camera_settings_changed = any([
