@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base_simple.html" %}
 
 {% block title %}Profile - ANPR System{% endblock %}
 
@@ -64,7 +64,7 @@
             </div>
         </div>
     </div>
-    
+
     {% if current_user.is_admin %}
     <div class="card mt-4">
         <div class="card-header bg-danger text-white">
