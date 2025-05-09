@@ -10,8 +10,8 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('anpr_debug.log'),  # Save logs to a file
-        logging.StreamHandler()  # Also print to console
+        logging.FileHandler('anpr_debug.log'),
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
@@ -20,8 +20,8 @@ class ANPRSettings:
     """Class to hold ANPR configuration settings"""
     def __init__(self):
         self.enable_preprocessing = True
-        self.min_plate_size = 100  # Further lowered for small plates
-        self.max_plate_size = 25000  # Adjusted for resized images
+        self.min_plate_size = 50  # Further lowered for small/slanted plates
+        self.max_plate_size = 30000  # Increased for flexibility
 
 def process_anpr(image, anpr_settings):
     """
@@ -33,11 +33,9 @@ def process_anpr(image, anpr_settings):
             logger.error("Invalid image input: Image is None or empty")
             return False, "Invalid image input"
 
-        # Log image dimensions
         height, width = image.shape[:2]
         logger.debug(f"Input image dimensions: {width}x{height}")
 
-        # Resize image
         max_width = 800
         if width > max_width:
             ratio = max_width / width
@@ -100,7 +98,6 @@ def preprocess_image(image):
         )
         logger.debug("Applied adaptive thresholding (inverted)")
 
-        # Save preprocessed image for debugging
         debug_dir = "debug"
         if not os.path.exists(debug_dir):
             os.makedirs(debug_dir)
@@ -115,6 +112,61 @@ def preprocess_image(image):
         logger.debug("Falling back to grayscale image due to preprocessing error")
         return gray
 
+def correct_perspective(image, contour):
+    """
+    Apply perspective correction to a quadrilateral contour to obtain a rectangular plate
+    """
+    try:
+        logger.debug("Applying perspective correction")
+        perimeter = cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, 0.03 * perimeter, True)
+
+        if len(approx) < 4:
+            logger.debug("Not enough points for perspective correction")
+            return image
+
+        # Order points: top-left, top-right, bottom-right, bottom-left
+        pts = approx.reshape(4, 2).astype(np.float32)
+        rect = np.zeros((4, 2), dtype=np.float32)
+
+        # Sum of coordinates: smallest is top-left, largest is bottom-right
+        s = pts.sum(axis=1)
+        rect[0] = pts[np.argmin(s)]  # Top-left
+        rect[2] = pts[np.argmax(s)]  # Bottom-right
+
+        # Difference of coordinates: smallest is top-right, largest is bottom-left
+        diff = np.diff(pts, axis=1)
+        rect[1] = pts[np.argmin(diff)]  # Top-right
+        rect[3] = pts[np.argmax(diff)]  # Bottom-left
+
+        # Define destination rectangle
+        (tl, tr, br, bl) = rect
+        width_a = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+        width_b = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+        max_width = max(int(width_a), int(width_b))
+
+        height_a = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+        height_b = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+        max_height = max(int(height_a), int(height_b))
+
+        dst = np.array([
+            [0, 0],
+            [max_width - 1, 0],
+            [max_width - 1, max_height - 1],
+            [0, max_height - 1]
+        ], dtype=np.float32)
+
+        # Compute perspective transform
+        M = cv2.getPerspectiveTransform(rect, dst)
+        warped = cv2.warpPerspective(image, M, (max_width, max_height))
+        logger.debug(f"Perspective corrected to {max_width}x{max_height}")
+
+        return warped
+
+    except Exception as e:
+        logger.error(f"Error in perspective correction: {str(e)}", exc_info=True)
+        return image
+
 def detect_plate_region(image, min_plate_size, max_plate_size, debug_dir="debug"):
     """
     Detect license plate region in the image
@@ -125,29 +177,22 @@ def detect_plate_region(image, min_plate_size, max_plate_size, debug_dir="debug"
             os.makedirs(debug_dir)
             logger.debug(f"Created debug directory: {debug_dir}")
 
-        # Log image dimensions
         height, width = image.shape[:2]
         logger.debug(f"Input image for detection: {width}x{height}")
 
-        # Dynamic Canny thresholds
         median_intensity = np.median(image)
         lower_threshold = int(max(0, (1.0 - 0.33) * median_intensity))
         upper_threshold = int(min(255, (1.0 + 0.33) * median_intensity))
         logger.debug(f"Canny thresholds: lower={lower_threshold}, upper={upper_threshold}")
 
-        # Apply edge detection
         edges = cv2.Canny(image, lower_threshold, upper_threshold)
         cv2.imwrite(os.path.join(debug_dir, "edges.jpg"), edges)
         logger.debug("Saved edge-detected image to debug/edges.jpg")
 
-        # Find contours
         contours, _ = cv2.findContours(edges.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         logger.debug(f"Found {len(contours)} contours")
 
-        # Create debug image
         debug_img = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR) if len(image.shape) == 2 else image.copy()
-
-        # Sort contours by area, consider top 30
         contours = sorted(contours, key=cv2.contourArea, reverse=True)[:30]
         logger.debug(f"Considering top {len(contours)} contours (max 30)")
 
@@ -165,26 +210,28 @@ def detect_plate_region(image, min_plate_size, max_plate_size, debug_dir="debug"
             approx = cv2.approxPolyDP(contour, 0.03 * perimeter, True)
             num_points = len(approx)
 
-            if num_points < 3 or num_points > 6:
-                logger.debug(f"Contour {i}: Skipped (points={num_points}, expected 3-6)")
+            if num_points < 3 or num_points > 8:  # Allow more points for slanted plates
+                logger.debug(f"Contour {i}: Skipped (points={num_points}, expected 3-8)")
                 continue
 
             x, y, w, h = cv2.boundingRect(contour)
             aspect_ratio = float(w) / h
-            if aspect_ratio < 1.0 or aspect_ratio > 6.0:
-                logger.debug(f"Contour {i}: Skipped (aspect_ratio={aspect_ratio:.2f}, expected 1.0-6.0)")
+            if aspect_ratio < 0.8 or aspect_ratio > 7.0:  # Wider range for slanted plates
+                logger.debug(f"Contour {i}: Skipped (aspect_ratio={aspect_ratio:.2f}, expected 0.8-7.0)")
                 continue
 
             logger.debug(
                 f"Contour {i}: Valid (area={area:.0f}, points={num_points}, aspect_ratio={aspect_ratio:.2f})"
             )
-            plate_img = image[y:y+h, x:x+w]
+
+            # Apply perspective correction
+            plate_img = correct_perspective(image, contour)
             cv2.drawContours(debug_img, [approx], -1, (0, 255, 0), 2)
             cv2.putText(
                 debug_img, f"Area: {area:.0f}, AR: {aspect_ratio:.2f}",
                 (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1
             )
-            break  # Take the first valid plate
+            break
 
         cv2.imwrite(os.path.join(debug_dir, "contours.jpg"), debug_img)
         logger.debug("Saved contour image to debug/contours.jpg")
@@ -207,13 +254,31 @@ def recognize_plate_text(plate_img):
     """
     try:
         logger.debug("Starting plate text recognition")
-        plate_img = cv2.resize(plate_img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-        logger.debug("Resized plate image for OCR (2x)")
+        # Additional preprocessing for OCR
+        gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY) if len(plate_img.shape) == 3 else plate_img
+        blur = cv2.bilateralFilter(gray, 11, 17, 17)  # Reduce noise while preserving edges
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        logger.debug("Applied bilateral filter and Otsu thresholding for OCR")
 
-        custom_config = r'--oem 3 --psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-        text = pytesseract.image_to_string(plate_img, config=custom_config)
+        # Resize for better OCR
+        binary = cv2.resize(binary, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+        logger.debug("Resized plate image for OCR (3x)")
+
+        # Save pre-OCR image for debugging
+        cv2.imwrite(os.path.join("debug", "ocr_input.jpg"), binary)
+        logger.debug("Saved OCR input image to debug/ocr_input.jpg")
+
+        # Try multiple PSM modes
+        custom_config = r'--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        text = pytesseract.image_to_string(binary, config=custom_config)
         text = text.strip()
-        logger.debug(f"OCR output: '{text}'")
+        logger.debug(f"OCR output (psm 7): '{text}'")
+
+        if not text:
+            custom_config = r'--oem 3 --psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+            text = pytesseract.image_to_string(binary, config=custom_config)
+            text = text.strip()
+            logger.debug(f"OCR output (psm 8): '{text}'")
 
         if not text:
             logger.warning("No text recognized by OCR")
