@@ -26,7 +26,12 @@ sudo apt install -y \
     postgresql \
     postgresql-contrib \
     libopencv-dev \
-    python3-opencv
+    python3-opencv \
+    tesseract-ocr \
+    libtesseract-dev \
+    python3-numpy \
+    libcamera-dev \
+    python3-picamera2
 ```
 
 ### 2. Set up the Database
