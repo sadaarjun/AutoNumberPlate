@@ -71,7 +71,7 @@ def create_app():
     except ImportError:
         logging.warning("Flask-Login not available. Running in limited mode.")
         # Import models without Flask-Login functionality
-        from models import Vehicle, Log
+        from models import User, Vehicle, Log, SocietySettings, CameraSetting, ANPRSettings, TestLog
         # Flag to track if login is not available
         app.config['LOGIN_AVAILABLE'] = False
     
@@ -79,24 +79,24 @@ def create_app():
         # Create database tables
         db.create_all()
 
-    # Make sure society settings exist
-    if not SocietySettings.query.first():
-        society = SocietySettings(name="Default Society")
-        db.session.add(society)
-        db.session.commit()
-        logger.info("Created default society settings")
+        # Make sure society settings exist
+        if not SocietySettings.query.first():
+            society = SocietySettings(name="Default Society")
+            db.session.add(society)
+            db.session.commit()
+            logging.info("Created default society settings")
 
-    # Make sure default ANPR settings exist
-    if not ANPRSettings.query.first():
-        anpr_settings = ANPRSettings(
-            min_plate_size=500,
-            max_plate_size=15000,
-            min_confidence=60,
-            enable_preprocessing=True
-        )
-        db.session.add(anpr_settings)
-        db.session.commit()
-        logger.info("Created default ANPR settings")
+        # Make sure default ANPR settings exist
+        if not ANPRSettings.query.first():
+            anpr_settings = ANPRSettings(
+                min_plate_size=500,
+                max_plate_size=15000,
+                min_confidence=60,
+                enable_preprocessing=True
+            )
+            db.session.add(anpr_settings)
+            db.session.commit()
+            logging.info("Created default ANPR settings")
 
     
     # Import and register blueprints

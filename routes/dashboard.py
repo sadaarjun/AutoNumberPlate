@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import base64
 import os
 import logging
-from models import Vehicle, Log, Setting
+from models import User, Vehicle, Log, SocietySettings, CameraSetting, ANPRSettings, TestLog
 from app import db
 import utils
 
@@ -184,6 +184,7 @@ def vehicles():
     )
 
 @dashboard_bp.route('/add_vehicle', methods=['POST'])
+@login_required
 def add_vehicle():
     """Add a new vehicle"""
     try:
@@ -236,6 +237,7 @@ def add_vehicle():
     return secure_redirect('dashboard.vehicles')
 
 @dashboard_bp.route('/edit_vehicle', methods=['POST'])
+@login_required
 def edit_vehicle():
     """Edit an existing vehicle"""
     try:
@@ -304,6 +306,7 @@ def edit_vehicle():
     return secure_redirect('dashboard.vehicles')
 
 @dashboard_bp.route('/delete_vehicle', methods=['POST'])
+@login_required
 def delete_vehicle():
     """Delete a vehicle"""
     try:
@@ -497,6 +500,7 @@ def vehicle_logs(vehicle_id):
     )
 
 @dashboard_bp.route('/change_admin_password', methods=['POST'])
+@login_required
 def change_admin_password():
     """Change the admin user password"""
     current_password = request.form.get('current_password')
@@ -546,6 +550,7 @@ def change_admin_password():
     return secure_redirect('dashboard.settings')
 
 @dashboard_bp.route('/settings', methods=['GET', 'POST'])
+@login_required
 def settings():
     society = SocietySettings.query.first()
     anpr_settings = ANPRSettings.query.first()
@@ -595,7 +600,7 @@ def settings():
             # Refresh the camera settings
             camera_settings = CameraSetting.query.all()
 
-        return redirect(url_for('settings'))
+        return redirect(url_for('dashboard.settings'))
 
     return render_template('settings.html',
                            society=society,
@@ -658,7 +663,7 @@ def api_capture_image():
             }), 500
 
     except Exception as e:
-        logger.error(f"Error capturing image: {str(e)}")
+        logging.error(f"Error capturing image: {str(e)}")
 
         # Update the log with error
         if 'log' in locals():
@@ -725,7 +730,7 @@ def api_process_anpr():
             })
 
     except Exception as e:
-        logger.error(f"Error processing ANPR: {str(e)}")
+        logging.error(f"Error processing ANPR: {str(e)}")
 
         # Update the log with error
         if 'log' in locals():
@@ -736,6 +741,7 @@ def api_process_anpr():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @dashboard_bp.route('/api/delete_camera', methods=['POST'])
+@login_required
 def delete_camera():
     camera_id = request.json.get('camera_id')
 
@@ -751,281 +757,6 @@ def delete_camera():
         db.session.commit()
         return jsonify({'success': True})
     except Exception as e:
-        logger.error(f"Error deleting camera: {str(e)}")
+        logging.error(f"Error deleting camera: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@dashboard_bp.route('/settingsold', methods=['GET', 'POST'])
-def settings():
-    """System settings page"""
-    # Temporarily remove admin check
-    # if not current_user.is_admin:
-    #     flash('You do not have permission to access settings', 'danger')
-    #     return secure_redirect('dashboard.index')
-    
-    if request.method == 'POST':
-        try:
-            # Get config instance
-            config = current_app.config.get('SYSTEM_CONFIG')
-            if not config:
-                flash('System configuration not found', 'danger')
-                return secure_redirect('dashboard.settings')
-            
-            # Camera settings
-            resolution_w = request.form.get('camera_resolution_width', type=int)
-            resolution_h = request.form.get('camera_resolution_height', type=int)
-            if resolution_w and resolution_h:
-                config.update_setting('camera.resolution', [resolution_w, resolution_h])
-            
-            framerate = request.form.get('camera_framerate', type=int)
-            if framerate:
-                config.update_setting('camera.framerate', framerate)
-            
-            rotation = request.form.get('camera_rotation', type=int)
-            if rotation is not None:
-                config.update_setting('camera.rotation', rotation)
-            
-            continuous_capture = True if request.form.get('continuous_capture') else False
-            config.update_setting('camera.continuous_capture', continuous_capture)
-            
-            max_image_width = request.form.get('max_image_width', type=int)
-            if max_image_width:
-                config.update_setting('camera.max_image_width', max_image_width)
-            
-            enhance_contrast = True if request.form.get('enhance_contrast') else False
-            config.update_setting('camera.enhance_contrast', enhance_contrast)
-            
-            # ANPR settings
-            processing_interval = request.form.get('processing_interval', type=float)
-            if processing_interval:
-                config.update_setting('anpr.processing_interval', processing_interval)
-            
-            confidence_threshold = request.form.get('confidence_threshold', type=float)
-            if confidence_threshold:
-                config.update_setting('anpr.confidence_threshold', confidence_threshold)
-            
-            auto_register_vehicles = True if request.form.get('auto_register_vehicles') else False
-            config.update_setting('anpr.auto_register_vehicles', auto_register_vehicles)
-            
-            # MyGate API settings
-            community_id = request.form.get('community_id')
-            if community_id:
-                config.update_setting('mygate.community_id', community_id)
-            
-            device_id = request.form.get('device_id')
-            if device_id:
-                config.update_setting('mygate.device_id', device_id)
-            
-            entry_point_name = request.form.get('entry_point_name')
-            if entry_point_name:
-                config.update_setting('mygate.entry_point_name', entry_point_name)
-            
-            # System settings
-            debug_mode = True if request.form.get('debug_mode') else False
-            config.update_setting('system.debug_mode', debug_mode)
-            
-            log_level = request.form.get('log_level')
-            if log_level:
-                config.update_setting('system.log_level', log_level)
-            
-            image_retention_days = request.form.get('image_retention_days', type=int)
-            if image_retention_days is not None:
-                config.update_setting('system.image_retention_days', image_retention_days)
-                
-            society_name = request.form.get('society_name')
-            if society_name:
-                config.update_setting('system.society_name', society_name)
-
-            db.session.commit()
-            flash('Settings updated successfully', 'success')
-            logging.info(f"System settings updated")
-            
-            # Multi-camera settings
-            multi_camera_enabled = True if request.form.get('multi_camera_enabled') else False
-            config.update_setting('cameras.enabled', multi_camera_enabled)
-            
-            # Handle camera list actions (add, edit, delete)
-            camera_action = request.form.get('camera_action')
-            if camera_action:
-                camera_id = request.form.get('camera_action_id')
-                
-                if camera_action == 'add':
-                    # Add a new camera
-                    camera_name = request.form.get('camera_action_name')
-                    if camera_name:
-                        # Generate a unique ID based on timestamp
-                        import time
-                        new_id = f"camera_{int(time.time())}"
-                        
-                        # Get current camera list
-                        camera_list = config.get_camera_list()
-                        
-                        # Add new camera
-                        camera_list.append({
-                            "id": new_id,
-                            "name": camera_name,
-                            "enabled": True
-                        })
-                        
-                        # Update camera list
-                        config.update_setting('cameras.camera_list', camera_list)
-                        db.session.commit()
-                        flash(f'Camera "{camera_name}" added successfully', 'success')
-                
-                elif camera_action == 'edit' and camera_id:
-                    # Edit existing camera
-                    camera_name = request.form.get('camera_action_name')
-                    if camera_name:
-                        # Get current camera list
-                        camera_list = config.get_camera_list()
-                        
-                        # Find and update camera
-                        for camera in camera_list:
-                            if camera['id'] == camera_id:
-                                camera['name'] = camera_name
-                                break
-                        
-                        # Update camera list
-                        config.update_setting('cameras.camera_list', camera_list)
-                        db.session.commit()
-                        flash(f'Camera "{camera_name}" updated successfully', 'success')
-                
-                elif camera_action == 'delete' and camera_id:
-                    # Delete camera (except main camera)
-                    if camera_id != 'main':
-                        # Get current camera list
-                        camera_list = config.get_camera_list()
-                        
-                        # Find camera to delete
-                        for i, camera in enumerate(camera_list):
-                            if camera['id'] == camera_id:
-                                # Check if this is the active camera
-                                if config.get_active_camera_id() == camera_id:
-                                    # Set main as active
-                                    config.update_setting('cameras.active_camera', 'main')
-                                
-                                # Remove camera
-                                del camera_list[i]
-                                break
-                        
-                        # Update camera list
-                        config.update_setting('cameras.camera_list', camera_list)
-                        db.session.commit()
-                        flash(f'Camera deleted successfully', 'success')
-                    else:
-                        flash('Cannot delete the main camera', 'warning')
-            
-            # Update active camera if selected
-            active_camera = request.form.get('active_camera')
-            if active_camera:
-                config.update_setting('cameras.active_camera', active_camera)
-            
-            # Check if any camera was enabled/disabled
-            for key in request.form:
-                if key.startswith('camera_enabled_'):
-                    camera_id = key.replace('camera_enabled_', '')
-                    enabled = True if request.form.get(key) else False
-                    
-                    # Get current camera list
-                    camera_list = config.get_camera_list()
-                    
-                    # Find and update camera
-                    for camera in camera_list:
-                        if camera['id'] == camera_id:
-                            camera['enabled'] = enabled
-                            break
-                    
-                    # Update camera list
-                    config.update_setting('cameras.camera_list', camera_list)
-            
-            # Check if camera needs to be reinitialized
-            camera_settings_changed = any([
-                request.form.get('camera_resolution_width'),
-                request.form.get('camera_resolution_height'),
-                request.form.get('camera_framerate'),
-                request.form.get('camera_rotation')
-            ])
-            
-            if camera_settings_changed:
-                try:
-                    # Get camera_manager from app config
-                    camera_manager = current_app.config.get('camera_manager')
-                    if camera_manager:
-                        # Stop current camera
-                        camera_manager.cleanup()
-                        # Reinitialize with new settings
-                        camera_manager.initialize_camera()
-                        db.session.commit()
-                        flash('Camera reinitialized with new settings', 'info')
-                except Exception as e:
-                    logging.error(f"Error reinitializing camera: {str(e)}")
-                    flash(f'Error reinitializing camera: {str(e)}', 'warning')
-            
-            # Check if ANPR processor needs to be updated
-            anpr_settings_changed = any([
-                request.form.get('processing_interval'),
-                request.form.get('confidence_threshold')
-            ])
-            
-            if anpr_settings_changed:
-                try:
-                    # Get anpr_processor from app config
-                    anpr_processor = current_app.config.get('anpr_processor')
-                    if anpr_processor and anpr_processor.processing:
-                        # Restart ANPR processor
-                        anpr_processor.stop_processing()
-                        # Wait a moment for processing to stop
-                        import time
-                        time.sleep(1)
-                        # Start with new settings
-                        import threading
-                        anpr_thread = threading.Thread(target=anpr_processor.start_processing)
-                        anpr_thread.daemon = True
-                        anpr_thread.start()
-                        db.session.commit()
-                        flash('ANPR processor restarted with new settings', 'info')
-                except Exception as e:
-                    logging.error(f"Error restarting ANPR processor: {str(e)}")
-                    flash(f'Error restarting ANPR processor: {str(e)}', 'warning')
-            
-        except Exception as e:
-            flash(f'Error updating settings: {str(e)}', 'danger')
-            logging.error(f"Error updating settings: {str(e)}")
-    
-    # Get current settings
-    try:
-        all_settings = Setting.query.all()
-        settings_dict = {setting.key: {
-            'value': setting.value,
-            'type': setting.type
-        } for setting in all_settings}
-        
-        # Get current environment variables
-        env_vars = {
-            'PLATE_RECOGNIZER_API_KEY': os.environ.get('PLATE_RECOGNIZER_API_KEY', ''),
-            'MYGATE_API_KEY': os.environ.get('MYGATE_API_KEY', ''),
-            'MYGATE_API_URL': os.environ.get('MYGATE_API_URL', '')
-        }
-        
-        # Mask API keys for display
-        for key in env_vars:
-            if env_vars[key] and 'API_KEY' in key:
-                env_vars[key] = env_vars[key][:4] + '***' + env_vars[key][-4:] if len(env_vars[key]) > 8 else '***'
-        
-        # Get config instance
-        config = current_app.config.get('SYSTEM_CONFIG')
-        
-    except Exception as e:
-        flash(f'Error loading settings: {str(e)}', 'danger')
-        logging.error(f"Error loading settings: {str(e)}")
-        settings_dict = {}
-        env_vars = {}
-        config = None
-    
-    return render_template(
-        'settings.html',
-        settings=settings_dict,
-        env_vars=env_vars,
-        config=config,
-        current_year=datetime.now().year,
-        society_name=config.get_society_name() if config else "ANPR System"
-    )
