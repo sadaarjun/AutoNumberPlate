@@ -72,6 +72,8 @@ def create_app():
         logging.warning("Flask-Login not available. Running in limited mode.")
         # Import models without Flask-Login functionality
         from models import User, Vehicle, Log, SocietySettings, CameraSetting, ANPRSettings, TestLog
+        from camera_utils import capture_image
+        from anpr_processor import process_anpr
         # Flag to track if login is not available
         app.config['LOGIN_AVAILABLE'] = False
     

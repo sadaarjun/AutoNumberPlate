@@ -13,6 +13,8 @@ import logging
 from models import User, Vehicle, Log, SocietySettings, CameraSetting, ANPRSettings, TestLog
 from app import db
 import utils
+from camera_utils import capture_image
+from anpr_processor import process_anpr
 
 # Try to import OpenCV - if it's not available, use our mock from utils
 try:
