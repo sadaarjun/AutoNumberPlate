@@ -20,7 +20,7 @@ class ANPRSettings:
     """Class to hold ANPR configuration settings"""
     def __init__(self):
         self.enable_preprocessing = True
-        self.min_plate_size = 10  # Lowered for small/slanted HSRP plates
+        self.min_plate_size = 10  # Lowered for small/slanted plates
         self.max_plate_size = 100000  # Increased for flexibility
 
 def process_anpr(image, anpr_settings):
@@ -36,7 +36,7 @@ def process_anpr(image, anpr_settings):
         height, width = image.shape[:2]
         logger.debug(f"Input image dimensions: {width}x{height}")
 
-        max_width = 1200  # Increased for high-res images
+        max_width = 800
         if width > max_width:
             ratio = max_width / width
             new_height = int(height * ratio)
@@ -90,7 +90,7 @@ def preprocess_image(image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         logger.debug("Converted to HSV for color filtering")
 
-        # Color filtering for HSRP plates (white, yellow, green)
+        # Minimal color filtering for HSRP plates (white, yellow, green)
         lower_white = np.array([0, 0, 180])
         upper_white = np.array([180, 60, 255])
         lower_yellow = np.array([15, 80, 80])
@@ -108,20 +108,16 @@ def preprocess_image(image):
         gray = cv2.cvtColor(masked_image, cv2.COLOR_BGR2GRAY)
         logger.debug("Converted to grayscale after color filtering")
 
-        blur = cv2.GaussianBlur(gray, (7, 7), 0)  # Increased for noise reduction
-        logger.debug("Applied Gaussian blur with kernel (7,7)")
-
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-        blackhat = cv2.morphologyEx(blur, cv2.MORPH_BLACKHAT, kernel)
-        logger.debug("Applied morphological blackhat")
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        logger.debug("Applied Gaussian blur with kernel (5,5)")
 
         thresh = cv2.adaptiveThreshold(
-            blackhat, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, 3
+            blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2
         )
-        logger.debug("Applied adaptive thresholding (inverted, blockSize=15)")
+        logger.debug("Applied adaptive thresholding (inverted, blockSize=11)")
 
-        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-        thresh = cv2.dilate(thresh, kernel_dilate, iterations=2)  # Strengthen edges
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        thresh = cv2.dilate(thresh, kernel, iterations=1)  # Light dilation
         logger.debug("Applied dilation to strengthen plate edges")
 
         debug_dir = "debug"
@@ -129,8 +125,7 @@ def preprocess_image(image):
             os.makedirs(debug_dir)
         cv2.imwrite(os.path.join(debug_dir, "preprocessed.jpg"), thresh)
         cv2.imwrite(os.path.join(debug_dir, "color_mask.jpg"), mask)
-        cv2.imwrite(os.path.join(debug_dir, "blackhat.jpg"), blackhat)
-        logger.debug("Saved preprocessed, color mask, and blackhat images to debug/")
+        logger.debug("Saved preprocessed and color mask images to debug/")
 
         return thresh
 
@@ -147,7 +142,7 @@ def correct_perspective(image, contour):
     try:
         logger.debug("Applying perspective correction")
         perimeter = cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, 0.06 * perimeter, True)  # Increased epsilon
+        approx = cv2.approxPolyDP(contour, 0.05 * perimeter, True)  # Increased epsilon
 
         if len(approx) < 4:
             logger.debug(f"Not enough points for perspective correction: {len(approx)}")
@@ -217,8 +212,8 @@ def detect_plate_region(image, min_plate_size, max_plate_size, debug_dir="debug"
         logger.debug(f"Input image for detection: {width}x{height}")
 
         median_intensity = np.median(image)
-        lower_threshold = int(max(0, (1.0 - 0.5) * median_intensity))  # Wider range
-        upper_threshold = int(min(255, (1.0 + 0.5) * median_intensity))
+        lower_threshold = int(max(0, (1.0 - 0.4) * median_intensity))
+        upper_threshold = int(min(255, (1.0 + 0.4) * median_intensity))
         logger.debug(f"Canny thresholds: lower={lower_threshold}, upper={upper_threshold}")
 
         edges = cv2.Canny(image, lower_threshold, upper_threshold)
@@ -229,8 +224,8 @@ def detect_plate_region(image, min_plate_size, max_plate_size, debug_dir="debug"
         logger.debug(f"Found {len(contours)} contours")
 
         debug_img = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR) if len(image.shape) == 2 else image.copy()
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:50]  # Increased
-        logger.debug(f"Considering top {len(contours)} contours (max 50)")
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:40]  # Increased
+        logger.debug(f"Considering top {len(contours)} contours (max 40)")
 
         plate_img = None
         for i, contour in enumerate(contours):
@@ -243,11 +238,11 @@ def detect_plate_region(image, min_plate_size, max_plate_size, debug_dir="debug"
                 continue
 
             perimeter = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.06 * perimeter, True)
+            approx = cv2.approxPolyDP(contour, 0.05 * perimeter, True)
             num_points = len(approx)
 
-            if num_points < 3 or num_points > 15:  # More flexible
-                logger.debug(f"Contour {i}: Skipped (points={num_points}, expected 3-15)")
+            if num_points < 3 or num_points > 12:  # More flexible
+                logger.debug(f"Contour {i}: Skipped (points={num_points}, expected 3-12)")
                 continue
 
             x, y, w, h = cv2.boundingRect(contour)
@@ -290,7 +285,11 @@ def recognize_plate_text(plate_img):
     try:
         logger.debug("Starting plate text recognition")
         gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY) if len(plate_img.shape) == 3 else plate_img
-        blur = cv2.bilateralFilter(gray, 13, 20, 20)  # Stronger filter
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        enhanced = clahe.apply(gray)  # Enhance contrast
+        logger.debug("Applied CLAHE contrast enhancement")
+
+        blur = cv2.bilateralFilter(enhanced, 11, 17, 17)
         logger.debug("Applied bilateral filter for OCR")
 
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
@@ -298,15 +297,15 @@ def recognize_plate_text(plate_img):
         logger.debug("Applied morphological closing")
 
         binary = cv2.adaptiveThreshold(
-            morph, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 29, 8
+            morph, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 25, 6
         )
-        logger.debug("Applied adaptive thresholding for OCR (blockSize=29)")
+        logger.debug("Applied adaptive thresholding for OCR (blockSize=25)")
 
-        binary = cv2.fastNlMeansDenoising(binary, h=20)  # Strong denoising
+        binary = cv2.fastNlMeansDenoising(binary, h=15)
         logger.debug("Applied denoising")
 
-        binary = cv2.resize(binary, None, fx=5, fy=5, interpolation=cv2.INTER_CUBIC)  # Increased
-        logger.debug("Resized plate image for OCR (5x)")
+        binary = cv2.resize(binary, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
+        logger.debug("Resized plate image for OCR (4x)")
 
         cv2.imwrite(os.path.join("debug", "ocr_input.jpg"), binary)
         logger.debug("Saved OCR input image to debug/ocr_input.jpg")
@@ -366,21 +365,25 @@ def recognize_plate_text(plate_img):
         # Character correction for HSRP-specific misreads
         corrected_text = list(best_text)
         for i, (char, conf) in enumerate(best_char_confs):
-            if conf < 75:  # Lower threshold for correction
-                if char == 'B' and corrected_text[i] in 'BE':
+            if conf < 80:  # Threshold for correction
+                if char == 'A' and corrected_text[i] in 'AH':
+                    corrected_text[i] = 'H'
+                elif char == 'H' and corrected_text[i] in 'HA1':
+                    corrected_text[i] = 'H'
+                elif char == 'I' and corrected_text[i] in 'I1':
+                    corrected_text[i] = '1'
+                elif char == '1' and corrected_text[i] in 'I1H':
+                    corrected_text[i] = '1'
+                elif char == '8' and corrected_text[i] in '89':
+                    corrected_text[i] = '9'
+                elif char == '9' and corrected_text[i] in '98':
+                    corrected_text[i] = '9'
+                elif char == 'B' and corrected_text[i] in 'BE':
                     corrected_text[i] = 'E'
                 elif char == 'E' and corrected_text[i] in 'EB':
                     corrected_text[i] = 'B'
                 elif char == '0' and corrected_text[i] in '09':
                     corrected_text[i] = '9'
-                elif char == '9' and corrected_text[i] in '90':
-                    corrected_text[i] = '0'
-                elif char == '1' and corrected_text[i] in '1HI':
-                    corrected_text[i] = 'H'
-                elif char == 'I' and corrected_text[i] in '1HI':
-                    corrected_text[i] = 'H'
-                elif char == '8' and corrected_text[i] in '8B':
-                    corrected_text[i] = 'B'
                 elif char == 'O' and corrected_text[i] in 'O0D':
                     corrected_text[i] = '0'
                 elif char == 'D' and corrected_text[i] in 'D0':
