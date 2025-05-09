@@ -13,7 +13,7 @@ class Config:
         self.default_config = {
             # Multi-camera settings
             "cameras": {
-                "enabled": False,  # Enable/disable multi-camera support
+                "enabled": True,  # Enable/disable multi-camera support
                 "active_camera": "main",  # Which camera to use (ID)
                 "camera_list": [
                     {

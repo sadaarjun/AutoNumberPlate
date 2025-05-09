@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base_simple.html" %}
 
 {% block title %}Settings - ANPR System{% endblock %}
 
@@ -106,7 +106,7 @@
                                         <input type="hidden" id="camera_id" name="camera_id">
                                         <div class="mb-3">
                                             <label for="camera_name" class="form-label">Camera Name</label>
-                                            <input type="text" class="form-control" id="camera_name" name="camera_name" required>
+                                            <input type="text" class="form-control" id="camera_name" name="camera_name" >
                                         </div>
                                     </div>
                                     <div class="modal-footer">
@@ -342,7 +342,7 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
+{% block additional_scripts %}
 <script>
     // Helper function to get authentication token from URL
     function getAuthToken() {
