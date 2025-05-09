@@ -20,7 +20,7 @@ class ANPRSettings:
     """Class to hold ANPR configuration settings"""
     def __init__(self):
         self.enable_preprocessing = True
-        self.min_plate_size = 5  # Further lowered for small plates
+        self.min_plate_size = 10  # Lowered for small/slanted HSRP plates
         self.max_plate_size = 100000  # Increased for flexibility
 
 def process_anpr(image, anpr_settings):
@@ -36,7 +36,7 @@ def process_anpr(image, anpr_settings):
         height, width = image.shape[:2]
         logger.debug(f"Input image dimensions: {width}x{height}")
 
-        max_width = 1200  # Increased for high-res web images
+        max_width = 1200  # Increased for high-res images
         if width > max_width:
             ratio = max_width / width
             new_height = int(height * ratio)
@@ -90,7 +90,7 @@ def preprocess_image(image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         logger.debug("Converted to HSV for color filtering")
 
-        # Broader color filtering for HSRP plates (white, yellow, green)
+        # Color filtering for HSRP plates (white, yellow, green)
         lower_white = np.array([0, 0, 180])
         upper_white = np.array([180, 60, 255])
         lower_yellow = np.array([15, 80, 80])
@@ -108,17 +108,17 @@ def preprocess_image(image):
         gray = cv2.cvtColor(masked_image, cv2.COLOR_BGR2GRAY)
         logger.debug("Converted to grayscale after color filtering")
 
-        blur = cv2.GaussianBlur(gray, (9, 9), 0)  # Increased for noise reduction
-        logger.debug("Applied Gaussian blur with kernel (9,9)")
+        blur = cv2.GaussianBlur(gray, (7, 7), 0)  # Increased for noise reduction
+        logger.debug("Applied Gaussian blur with kernel (7,7)")
 
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))  # Larger kernel
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
         blackhat = cv2.morphologyEx(blur, cv2.MORPH_BLACKHAT, kernel)
         logger.debug("Applied morphological blackhat")
 
         thresh = cv2.adaptiveThreshold(
-            blackhat, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 17, 4
+            blackhat, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, 3
         )
-        logger.debug("Applied adaptive thresholding (inverted, blockSize=17)")
+        logger.debug("Applied adaptive thresholding (inverted, blockSize=15)")
 
         kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
         thresh = cv2.dilate(thresh, kernel_dilate, iterations=2)  # Strengthen edges
@@ -147,7 +147,7 @@ def correct_perspective(image, contour):
     try:
         logger.debug("Applying perspective correction")
         perimeter = cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, 0.08 * perimeter, True)  # Increased epsilon
+        approx = cv2.approxPolyDP(contour, 0.06 * perimeter, True)  # Increased epsilon
 
         if len(approx) < 4:
             logger.debug(f"Not enough points for perspective correction: {len(approx)}")
@@ -217,8 +217,8 @@ def detect_plate_region(image, min_plate_size, max_plate_size, debug_dir="debug"
         logger.debug(f"Input image for detection: {width}x{height}")
 
         median_intensity = np.median(image)
-        lower_threshold = int(max(0, (1.0 - 0.6) * median_intensity))  # Wider range
-        upper_threshold = int(min(255, (1.0 + 0.6) * median_intensity))
+        lower_threshold = int(max(0, (1.0 - 0.5) * median_intensity))  # Wider range
+        upper_threshold = int(min(255, (1.0 + 0.5) * median_intensity))
         logger.debug(f"Canny thresholds: lower={lower_threshold}, upper={upper_threshold}")
 
         edges = cv2.Canny(image, lower_threshold, upper_threshold)
@@ -229,8 +229,8 @@ def detect_plate_region(image, min_plate_size, max_plate_size, debug_dir="debug"
         logger.debug(f"Found {len(contours)} contours")
 
         debug_img = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR) if len(image.shape) == 2 else image.copy()
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:60]  # Increased
-        logger.debug(f"Considering top {len(contours)} contours (max 60)")
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:50]  # Increased
+        logger.debug(f"Considering top {len(contours)} contours (max 50)")
 
         plate_img = None
         for i, contour in enumerate(contours):
@@ -243,7 +243,7 @@ def detect_plate_region(image, min_plate_size, max_plate_size, debug_dir="debug"
                 continue
 
             perimeter = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.08 * perimeter, True)  # Increased epsilon
+            approx = cv2.approxPolyDP(contour, 0.06 * perimeter, True)
             num_points = len(approx)
 
             if num_points < 3 or num_points > 15:  # More flexible
@@ -252,9 +252,8 @@ def detect_plate_region(image, min_plate_size, max_plate_size, debug_dir="debug"
 
             x, y, w, h = cv2.boundingRect(contour)
             aspect_ratio = float(w) / h
-            # HSRP plates: ~4.7:1 (four-wheelers), ~2:1 (two-wheelers), relaxed for distortion
-            if aspect_ratio < 1.0 or aspect_ratio > 8.0:
-                logger.debug(f"Contour {i}: Skipped (aspect_ratio={aspect_ratio:.2f}, expected 1.0-8.0)")
+            if aspect_ratio < 0.5 or aspect_ratio > 10.0:  # Wider range for HSRP
+                logger.debug(f"Contour {i}: Skipped (aspect_ratio={aspect_ratio:.2f}, expected 0.5-10.0)")
                 continue
 
             logger.debug(
@@ -303,7 +302,7 @@ def recognize_plate_text(plate_img):
         )
         logger.debug("Applied adaptive thresholding for OCR (blockSize=29)")
 
-        binary = cv2.fastNlMeansDenoising(binary, h=20)  # Stronger denoising
+        binary = cv2.fastNlMeansDenoising(binary, h=20)  # Strong denoising
         logger.debug("Applied denoising")
 
         binary = cv2.resize(binary, None, fx=5, fy=5, interpolation=cv2.INTER_CUBIC)  # Increased
@@ -312,9 +311,9 @@ def recognize_plate_text(plate_img):
         cv2.imwrite(os.path.join("debug", "ocr_input.jpg"), binary)
         logger.debug("Saved OCR input image to debug/ocr_input.jpg")
 
-        # Handle two-line plates
+        # Handle two-line HSRP plates
         height, width = binary.shape
-        if height > width * 0.4:  # Adjusted for two-line plates
+        if height > width * 0.4:  # Likely two-line plate
             logger.debug("Detected possible two-line plate, splitting")
             top_half = binary[:height//2, :]
             bottom_half = binary[height//2:, :]
@@ -367,7 +366,7 @@ def recognize_plate_text(plate_img):
         # Character correction for HSRP-specific misreads
         corrected_text = list(best_text)
         for i, (char, conf) in enumerate(best_char_confs):
-            if conf < 75:  # Lowered threshold
+            if conf < 75:  # Lower threshold for correction
                 if char == 'B' and corrected_text[i] in 'BE':
                     corrected_text[i] = 'E'
                 elif char == 'E' and corrected_text[i] in 'EB':
