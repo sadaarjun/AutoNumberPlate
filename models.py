@@ -86,3 +86,55 @@ class Setting(db.Model):
     type = db.Column(db.String(20))  # text, number, boolean
     description = db.Column(db.Text)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class SocietySettings(db.Model):
+    """Model for storing society details"""
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<Society {self.name}>'
+
+class CameraSetting(db.Model):
+    """Model for storing camera configuration settings"""
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    url = db.Column(db.String(500), nullable=False)
+    username = db.Column(db.String(100))
+    password = db.Column(db.String(100))
+    enabled = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationship with test logs
+    test_logs = db.relationship('TestLog', backref='camera', lazy=True)
+
+    def __repr__(self):
+        return f'<Camera {self.name}>'
+
+class ANPRSettings(db.Model):
+    """Model for storing ANPR configuration settings"""
+    id = db.Column(db.Integer, primary_key=True)
+    min_plate_size = db.Column(db.Integer, nullable=False, default=500)
+    max_plate_size = db.Column(db.Integer, nullable=False, default=15000)
+    min_confidence = db.Column(db.Integer, nullable=False, default=60)
+    enable_preprocessing = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<ANPRSettings {self.id}>'
+
+class TestLog(db.Model):
+    """Model for storing camera and ANPR test results"""
+    id = db.Column(db.Integer, primary_key=True)
+    camera_id = db.Column(db.Integer, db.ForeignKey('camera_setting.id'), nullable=False)
+    test_type = db.Column(db.String(50), nullable=False)  # 'capture' or 'anpr'
+    status = db.Column(db.String(50), nullable=False)  # 'success', 'error', 'pending', 'no_plate'
+    details = db.Column(db.Text)  # For error messages or detected plate
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<TestLog {self.id} - {self.test_type} - {self.status}>'

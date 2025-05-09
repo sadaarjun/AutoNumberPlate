@@ -57,8 +57,10 @@ def create_app():
         login_manager.login_view = 'auth.login'
         
         # Set up Flask-Login user loader
-        from models import User, Vehicle, Log
-        
+        from models import User, Vehicle, Log, SocietySettings, CameraSetting, ANPRSettings, TestLog
+        from camera_utils import capture_image
+        from anpr_processor import process_anpr
+
         @login_manager.user_loader
         def load_user(user_id):
             return User.query.get(int(user_id))
@@ -76,6 +78,26 @@ def create_app():
     with app.app_context():
         # Create database tables
         db.create_all()
+
+    # Make sure society settings exist
+    if not SocietySettings.query.first():
+        society = SocietySettings(name="Default Society")
+        db.session.add(society)
+        db.session.commit()
+        logger.info("Created default society settings")
+
+    # Make sure default ANPR settings exist
+    if not ANPRSettings.query.first():
+        anpr_settings = ANPRSettings(
+            min_plate_size=500,
+            max_plate_size=15000,
+            min_confidence=60,
+            enable_preprocessing=True
+        )
+        db.session.add(anpr_settings)
+        db.session.commit()
+        logger.info("Created default ANPR settings")
+
     
     # Import and register blueprints
     from routes.auth import auth_bp

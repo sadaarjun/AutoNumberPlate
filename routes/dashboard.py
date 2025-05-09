@@ -544,8 +544,217 @@ def change_admin_password():
         logging.error(f"Error updating admin password: {str(e)}")
     
     return secure_redirect('dashboard.settings')
-    
+
 @dashboard_bp.route('/settings', methods=['GET', 'POST'])
+def settings():
+    society = SocietySettings.query.first()
+    anpr_settings = ANPRSettings.query.first()
+    camera_settings = CameraSetting.query.all()
+
+    if request.method == 'POST':
+        if 'save_society' in request.form:
+            society.name = request.form.get('society_name', '')
+            db.session.commit()
+            flash('Society settings saved successfully', 'success')
+
+        elif 'save_anpr' in request.form:
+            anpr_settings.min_plate_size = int(request.form.get('min_plate_size', 500))
+            anpr_settings.max_plate_size = int(request.form.get('max_plate_size', 15000))
+            anpr_settings.min_confidence = int(request.form.get('min_confidence', 60))
+            anpr_settings.enable_preprocessing = 'enable_preprocessing' in request.form
+            db.session.commit()
+            flash('ANPR settings saved successfully', 'success')
+
+        elif 'save_camera' in request.form:
+            camera_id = request.form.get('camera_id')
+
+            if camera_id and camera_id.isdigit():
+                # Update existing camera
+                camera = CameraSetting.query.get(int(camera_id))
+                if camera:
+                    camera.name = request.form.get('camera_name', '')
+                    camera.url = request.form.get('camera_url', '')
+                    camera.username = request.form.get('camera_username', '')
+                    camera.password = request.form.get('camera_password', '')
+                    camera.enabled = 'camera_enabled' in request.form
+                    db.session.commit()
+                    flash('Camera settings updated successfully', 'success')
+            else:
+                # Add new camera
+                new_camera = CameraSetting(
+                    name=request.form.get('camera_name', ''),
+                    url=request.form.get('camera_url', ''),
+                    username=request.form.get('camera_username', ''),
+                    password=request.form.get('camera_password', ''),
+                    enabled='camera_enabled' in request.form
+                )
+                db.session.add(new_camera)
+                db.session.commit()
+                flash('New camera added successfully', 'success')
+
+            # Refresh the camera settings
+            camera_settings = CameraSetting.query.all()
+
+        return redirect(url_for('settings'))
+
+    return render_template('settings.html',
+                           society=society,
+                           anpr_settings=anpr_settings,
+                           camera_settings=camera_settings)
+
+@dashboard_bp.route('/test_cameras')
+def test_cameras():
+    cameras = CameraSetting.query.all()
+    return render_template('test_cameras.html', cameras=cameras)
+
+@dashboard_bp.route('/api/capture_image', methods=['POST'])
+def api_capture_image():
+    camera_id = request.json.get('camera_id')
+
+    if not camera_id:
+        return jsonify({'success': False, 'error': 'Camera ID not provided'}), 400
+
+    camera = CameraSetting.query.get(camera_id)
+    if not camera:
+        return jsonify({'success': False, 'error': 'Camera not found'}), 404
+
+    try:
+        # Log the test attempt
+        log = TestLog(
+            camera_id=camera_id,
+            test_type='capture',
+            status='pending',
+            details='Attempting to capture image'
+        )
+        db.session.add(log)
+        db.session.commit()
+
+        # Capture the image
+        success, frame_or_error = capture_image(camera)
+
+        if success:
+            # Convert the image to a base64 string for display
+            _, buffer = cv2.imencode('.jpg', frame_or_error)
+            img_str = base64.b64encode(buffer).decode('utf-8')
+
+            # Update the log with success
+            log.status = 'success'
+            log.details = 'Image captured successfully'
+            db.session.commit()
+
+            return jsonify({
+                'success': True,
+                'image': f'data:image/jpeg;base64,{img_str}'
+            })
+        else:
+            # Update the log with error
+            log.status = 'error'
+            log.details = str(frame_or_error)
+            db.session.commit()
+
+            return jsonify({
+                'success': False,
+                'error': str(frame_or_error)
+            }), 500
+
+    except Exception as e:
+        logger.error(f"Error capturing image: {str(e)}")
+
+        # Update the log with error
+        if 'log' in locals():
+            log.status = 'error'
+            log.details = str(e)
+            db.session.commit()
+
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@dashboard_bp.route('/api/process_anpr', methods=['POST'])
+def api_process_anpr():
+    try:
+        # Get the image data from the request
+        image_data = request.json.get('image')
+        camera_id = request.json.get('camera_id')
+
+        if not image_data:
+            return jsonify({'success': False, 'error': 'No image data provided'}), 400
+
+        # Log the test attempt
+        log = TestLog(
+            camera_id=camera_id,
+            test_type='anpr',
+            status='pending',
+            details='Attempting ANPR processing'
+        )
+        db.session.add(log)
+        db.session.commit()
+
+        # Remove the data:image/jpeg;base64, prefix
+        if ',' in image_data:
+            image_data = image_data.split(',')[1]
+
+        # Decode the base64 image
+        image_bytes = base64.b64decode(image_data)
+        np_array = np.frombuffer(image_bytes, np.uint8)
+        image = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
+
+        # Get ANPR settings
+        anpr_settings = ANPRSettings.query.first()
+
+        # Process the image with ANPR
+        success, result = process_anpr(image, anpr_settings)
+
+        if success:
+            # Update the log with success
+            log.status = 'success'
+            log.details = f'Detected plate: {result}'
+            db.session.commit()
+
+            return jsonify({
+                'success': True,
+                'plate_text': result
+            })
+        else:
+            # Update the log with error or no plate found
+            log.status = 'error' if 'error' in result.lower() else 'no_plate'
+            log.details = result
+            db.session.commit()
+
+            return jsonify({
+                'success': False,
+                'error': result
+            })
+
+    except Exception as e:
+        logger.error(f"Error processing ANPR: {str(e)}")
+
+        # Update the log with error
+        if 'log' in locals():
+            log.status = 'error'
+            log.details = str(e)
+            db.session.commit()
+
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@dashboard_bp.route('/api/delete_camera', methods=['POST'])
+def delete_camera():
+    camera_id = request.json.get('camera_id')
+
+    if not camera_id:
+        return jsonify({'success': False, 'error': 'Camera ID not provided'}), 400
+
+    camera = CameraSetting.query.get(camera_id)
+    if not camera:
+        return jsonify({'success': False, 'error': 'Camera not found'}), 404
+
+    try:
+        db.session.delete(camera)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error deleting camera: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@dashboard_bp.route('/settingsold', methods=['GET', 'POST'])
 def settings():
     """System settings page"""
     # Temporarily remove admin check
@@ -625,7 +834,8 @@ def settings():
             society_name = request.form.get('society_name')
             if society_name:
                 config.update_setting('system.society_name', society_name)
-            
+
+            db.session.commit()
             flash('Settings updated successfully', 'success')
             logging.info(f"System settings updated")
             
@@ -658,6 +868,7 @@ def settings():
                         
                         # Update camera list
                         config.update_setting('cameras.camera_list', camera_list)
+                        db.session.commit()
                         flash(f'Camera "{camera_name}" added successfully', 'success')
                 
                 elif camera_action == 'edit' and camera_id:
@@ -675,6 +886,7 @@ def settings():
                         
                         # Update camera list
                         config.update_setting('cameras.camera_list', camera_list)
+                        db.session.commit()
                         flash(f'Camera "{camera_name}" updated successfully', 'success')
                 
                 elif camera_action == 'delete' and camera_id:
@@ -697,6 +909,7 @@ def settings():
                         
                         # Update camera list
                         config.update_setting('cameras.camera_list', camera_list)
+                        db.session.commit()
                         flash(f'Camera deleted successfully', 'success')
                     else:
                         flash('Cannot delete the main camera', 'warning')
@@ -741,6 +954,7 @@ def settings():
                         camera_manager.cleanup()
                         # Reinitialize with new settings
                         camera_manager.initialize_camera()
+                        db.session.commit()
                         flash('Camera reinitialized with new settings', 'info')
                 except Exception as e:
                     logging.error(f"Error reinitializing camera: {str(e)}")
@@ -767,6 +981,7 @@ def settings():
                         anpr_thread = threading.Thread(target=anpr_processor.start_processing)
                         anpr_thread.daemon = True
                         anpr_thread.start()
+                        db.session.commit()
                         flash('ANPR processor restarted with new settings', 'info')
                 except Exception as e:
                     logging.error(f"Error restarting ANPR processor: {str(e)}")

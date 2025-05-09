@@ -1,227 +1,185 @@
-import os
 import cv2
+import numpy as np
 import logging
-import requests
-import time
-import threading
-import json
-from datetime import datetime
-from models import Vehicle, Log
-from app import db
-from mygate_api import MyGateAPI
+import re
 
-class ANPRProcessor:
-    def __init__(self, config, camera_manager):
-        self.config = config
-        self.camera_manager = camera_manager
-        self.plate_recognizer_api_key = os.environ.get("PLATE_RECOGNIZER_API_KEY", "")
-        self.plate_recognizer_url = "https://api.platerecognizer.com/v1/plate-reader/"
-        self.processing = False
-        self.mygate_api = MyGateAPI(config)
-        self.lock = threading.Lock()
-        self.last_processed_plates = {}  # Store last processed plates with timestamps
-        self.processing_interval = self.config.get_processing_interval()  # seconds
-        
-        # Create directories for storing images if they don't exist
-        self.images_dir = "static/images/captures"
-        os.makedirs(self.images_dir, exist_ok=True)
-        
-    def start_processing(self):
-        """Start the ANPR processing loop"""
-        self.processing = True
-        logging.info("Starting ANPR processing")
-        
-        while self.processing:
-            try:
-                # Capture image from camera
-                image = self.camera_manager.capture_image()
-                if image is None:
-                    logging.warning("Failed to capture image from camera")
-                    time.sleep(2)
-                    continue
-                
-                # Process the image to detect license plates
-                plates = self.recognize_plate(image)
-                
-                if plates:
-                    for plate_info in plates:
-                        self.process_detected_plate(plate_info, image)
-                        
-                # Sleep for the configured interval
-                time.sleep(self.processing_interval)
-                
-            except Exception as e:
-                logging.error(f"Error in ANPR processing: {str(e)}")
-                time.sleep(5)  # Wait a bit longer if there's an error
-    
-    def stop_processing(self):
-        """Stop the ANPR processing loop"""
-        self.processing = False
-        logging.info("Stopping ANPR processing")
-    
-    def recognize_plate(self, image):
-        """Use Plate Recognizer API to detect license plates in the image"""
-        if not self.plate_recognizer_api_key:
-            logging.error("Plate Recognizer API key not set")
-            return []
-            
-        try:
-            # Save image to a temporary file
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            temp_image_path = f"{self.images_dir}/temp_{timestamp}.jpg"
-            cv2.imwrite(temp_image_path, image)
-            
-            # Send image to Plate Recognizer API
-            with open(temp_image_path, 'rb') as image_file:
-                response = requests.post(
-                    self.plate_recognizer_url,
-                    files=dict(upload=image_file),
-                    headers={'Authorization': f'Token {self.plate_recognizer_api_key}'}
-                )
-            
-            # Process the response
-            if response.status_code == 200:
-                result = response.json()
-                plates = []
-                
-                if 'results' in result and result['results']:
-                    for plate_result in result['results']:
-                        plate_info = {
-                            'plate': plate_result['plate'],
-                            'confidence': plate_result['score'],
-                            'box': plate_result['box'],
-                            'region': plate_result.get('region', {}).get('code', ''),
-                            'vehicle_type': plate_result.get('vehicle', {}).get('type', '')
-                        }
-                        plates.append(plate_info)
-                
-                return plates
-            else:
-                logging.error(f"Plate Recognizer API error: {response.status_code} - {response.text}")
-                return []
-                
-        except Exception as e:
-            logging.error(f"Error recognizing plate: {str(e)}")
-            return []
-            
-    def process_detected_plate(self, plate_info, image):
-        """Process a detected license plate"""
-        plate_number = plate_info['plate']
-        confidence = plate_info['confidence']
-        
-        # Check if we've recently processed this plate (avoid duplicates)
-        current_time = time.time()
-        if plate_number in self.last_processed_plates:
-            last_time = self.last_processed_plates[plate_number]
-            # If processed in the last minute, skip
-            if current_time - last_time < 60:
-                logging.info(f"Skipping recently processed plate: {plate_number}")
-                return
-        
-        # Update the last processed time for this plate
-        self.last_processed_plates[plate_number] = current_time
-        
-        # Log the detection
-        logging.info(f"Detected license plate: {plate_number} with confidence: {confidence}")
-        
-        # Save the image with the plate highlighted
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        image_path = f"{self.images_dir}/{plate_number}_{timestamp}.jpg"
-        
-        # Draw bounding box around the plate
-        box = plate_info['box']
-        cv2.rectangle(
-            image, 
-            (box['xmin'], box['ymin']), 
-            (box['xmin'] + box['width'], box['ymin'] + box['height']), 
-            (0, 255, 0), 
-            2
-        )
-        
-        # Add text with plate number
-        cv2.putText(
-            image, 
-            plate_number, 
-            (box['xmin'], box['ymin'] - 10), 
-            cv2.FONT_HERSHEY_SIMPLEX, 
-            0.9, 
-            (0, 255, 0), 
-            2
-        )
-        
-        # Save the annotated image
-        cv2.imwrite(image_path, image)
-        
-        # Process the vehicle entry/exit
-        self.process_vehicle_event(plate_number, confidence, image_path)
-    
-    def process_vehicle_event(self, plate_number, confidence, image_path):
-        """Process a vehicle entry/exit event"""
-        with self.lock:
-            try:
-                # Check if vehicle exists in database
-                vehicle = Vehicle.query.filter_by(license_plate=plate_number).first()
-                
-                # Determine if this is an entry or exit event based on config or previous logs
-                event_type = self.determine_event_type(plate_number)
-                
-                # Create log entry
-                log = Log(
-                    license_plate=plate_number,
-                    confidence=confidence,
-                    image_path=image_path,
-                    event_type=event_type,
-                    status='pending'
-                )
-                
-                if vehicle:
-                    log.vehicle_id = vehicle.id
-                
-                db.session.add(log)
-                db.session.commit()
-                
-                # Process with MyGate API
-                mygate_response = None
-                try:
-                    if event_type == 'entry':
-                        mygate_response = self.mygate_api.register_entry(plate_number, vehicle.owner_name if vehicle else None)
-                    else:
-                        mygate_response = self.mygate_api.register_exit(plate_number)
-                    
-                    # Update log with MyGate response
-                    log.processed_by_mygate = True
-                    log.mygate_response = json.dumps(mygate_response)
-                    log.status = 'success'
-                    
-                except Exception as e:
-                    log.status = 'error'
-                    log.error_message = str(e)
-                    logging.error(f"Error processing with MyGate API: {str(e)}")
-                
-                # If vehicle doesn't exist, create it
-                if not vehicle and self.config.get_auto_register_vehicles():
-                    vehicle = Vehicle(
-                        license_plate=plate_number,
-                        status='active',
-                        is_resident=False,
-                        notes=f'Auto-registered by ANPR system on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
-                    )
-                    db.session.add(vehicle)
-                
-                db.session.commit()
-                
-            except Exception as e:
-                db.session.rollback()
-                logging.error(f"Error processing vehicle event: {str(e)}")
-    
-    def determine_event_type(self, plate_number):
-        """Determine if this is an entry or exit event"""
-        # Get the last log for this plate
-        last_log = Log.query.filter_by(license_plate=plate_number).order_by(Log.timestamp.desc()).first()
-        
-        # If no previous log or last event was exit, this is an entry
-        if not last_log or last_log.event_type == 'exit':
-            return 'entry'
-        # If last event was entry, this is an exit
+logger = logging.getLogger(__name__)
+
+def process_anpr(image, anpr_settings):
+    """
+    Process an image for license plate detection and recognition
+
+    Args:
+        image: The captured image as a numpy array
+        anpr_settings: ANPRSettings object with ANPR configuration
+
+    Returns:
+        Tuple (success, result) where:
+            - success is a boolean indicating if a plate was successfully detected
+            - result is either the plate text (on success) or an error message (on failure)
+    """
+    try:
+        if image is None or image.size == 0:
+            return False, "Invalid image input"
+
+        # Make a copy of the image to avoid modifying the original
+        img = image.copy()
+
+        # Apply preprocessing if enabled
+        if anpr_settings.enable_preprocessing:
+            img = preprocess_image(img)
+
+        # Detect plate region
+        plate_img = detect_plate_region(img, anpr_settings.min_plate_size, anpr_settings.max_plate_size)
+
+        if plate_img is None:
+            return False, "No license plate detected in the image"
+
+        # Recognize the text
+        plate_text = recognize_plate_text(plate_img)
+
+        if not plate_text:
+            return False, "Could not recognize text on the license plate"
+
+        # Clean and validate the plate text
+        cleaned_plate = clean_plate_text(plate_text)
+
+        if not cleaned_plate:
+            return False, "Recognized text does not appear to be a valid license plate"
+
+        return True, cleaned_plate
+
+    except Exception as e:
+        logger.error(f"Error in ANPR processing: {str(e)}")
+        return False, f"ANPR Processing Error: {str(e)}"
+
+def preprocess_image(image):
+    """
+    Apply preprocessing to enhance the image for license plate detection
+
+    Args:
+        image: Input image
+
+    Returns:
+        Preprocessed image
+    """
+    try:
+        # Convert to grayscale
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # Apply gaussian blur
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+
+        # Apply histogram equalization to improve contrast
+        equalized = cv2.equalizeHist(blur)
+
+        return equalized
+
+    except Exception as e:
+        logger.error(f"Error in image preprocessing: {str(e)}")
+        # Return original image if preprocessing fails
+        return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+
+def detect_plate_region(image, min_plate_size, max_plate_size):
+    """
+    Detect license plate region in the image
+
+    Args:
+        image: Preprocessed image
+        min_plate_size: Minimum plate contour area
+        max_plate_size: Maximum plate contour area
+
+    Returns:
+        Cropped plate image or None if no plate found
+    """
+    try:
+        # Apply edge detection
+        edges = cv2.Canny(image, 50, 150)
+
+        # Find contours
+        contours, _ = cv2.findContours(edges.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Sort contours by area, largest first
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:10]
+
+        # Check each contour
+        for contour in contours:
+            area = cv2.contourArea(contour)
+
+            # Skip if contour is too small or too large
+            if area < min_plate_size or area > max_plate_size:
+                continue
+
+            # Get the perimeter of the contour
+            perimeter = cv2.arcLength(contour, True)
+
+            # Approximate the contour shape
+            approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
+
+            # If the contour has 4 points (rectangular), it might be a license plate
+            if len(approx) == 4:
+                # Get the bounding rectangle
+                x, y, w, h = cv2.boundingRect(contour)
+
+                # Check the aspect ratio of the rectangle (typical license plate aspect ratio)
+                aspect_ratio = float(w) / h
+                if 1.5 <= aspect_ratio <= 5.0:  # Typical license plate aspect ratios
+                    # Extract the plate region
+                    plate_img = image[y:y+h, x:x+w]
+                    return plate_img
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Error detecting plate region: {str(e)}")
+        return None
+
+def recognize_plate_text(plate_img):
+    """
+    Recognize text on the license plate
+
+    Args:
+        plate_img: Cropped image of the license plate
+
+    Returns:
+        Recognized text or empty string if recognition failed
+    """
+    try:
+        # This is a placeholder for actual OCR implementation
+        # In a real application, you would integrate with a proper OCR library
+        # such as Tesseract OCR or a specialized ANPR OCR engine
+
+        # For this example, we'll return a mock plate number
+        # In a real implementation, this would be replaced with actual OCR logic
+        return "ABC123"
+
+    except Exception as e:
+        logger.error(f"Error in plate text recognition: {str(e)}")
+        return ""
+
+def clean_plate_text(plate_text):
+    """
+    Clean and validate the recognized plate text
+
+    Args:
+        plate_text: Raw recognized text
+
+    Returns:
+        Cleaned plate text or empty string if validation failed
+    """
+    try:
+        # Remove spaces and convert to uppercase
+        cleaned = plate_text.replace(" ", "").upper()
+
+        # Remove any special characters
+        cleaned = re.sub(r'[^A-Z0-9]', '', cleaned)
+
+        # Basic validation - must have at least 5 characters
+        if len(cleaned) >= 5:
+            return cleaned
         else:
-            return 'exit'
+            return ""
+
+    except Exception as e:
+        logger.error(f"Error cleaning plate text: {str(e)}")
+        return ""

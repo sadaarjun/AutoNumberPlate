@@ -1,0 +1,102 @@
+{% extends "base_simple.html" %}
+
+{% block content %}
+<h1 class="mb-4">Test Cameras</h1>
+
+{% if not cameras %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle"></i> No cameras configured.
+    <a href="/settings" class="alert-link">Go to Settings</a> to add cameras.
+</div>
+{% else %}
+<div class="row">
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5>Select Camera</h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    {% for camera in cameras %}
+                    <button type="button" class="list-group-item list-group-item-action camera-select-btn"
+                            data-camera-id="{{ camera.id }}">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">{{ camera.name }}</h6>
+                            {% if camera.enabled %}
+                            <span class="badge bg-success">Enabled</span>
+                            {% else %}
+                            <span class="badge bg-danger">Disabled</span>
+                            {% endif %}
+                        </div>
+                        <small>ID: {{ camera.id }}</small>
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card mb-4" id="cameraTestPanel" style="display: none;">
+            <div class="card-header">
+                <h5 id="selectedCameraTitle">Camera Test</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-12 d-flex justify-content-between">
+                        <button id="captureBtn" class="btn btn-primary">
+                            <i class="bi bi-camera"></i> Capture Image
+                        </button>
+                        <button id="processAnprBtn" class="btn btn-secondary" disabled>
+                            <i class="bi bi-search"></i> Process ANPR
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Loading indicator -->
+                <div id="loadingIndicator" class="text-center my-4" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2" id="loadingText">Capturing image...</p>
+                </div>
+
+                <!-- Error message -->
+                <div id="errorMessage" class="alert alert-danger" style="display: none;">
+                    <i class="bi bi-exclamation-triangle"></i> <span id="errorText"></span>
+                </div>
+
+                <!-- Capture result container -->
+                <div id="captureResultContainer" style="display: none;">
+                    <h6 class="mb-2">Captured Image:</h6>
+                    <div class="mb-3 text-center">
+                        <img id="capturedImage" class="img-fluid border rounded" alt="Captured image" style="max-height: 400px;">
+                    </div>
+                </div>
+
+                <!-- ANPR result container -->
+                <div id="anprResultContainer" class="mt-4" style="display: none;">
+                    <h6 class="mb-2">ANPR Result:</h6>
+                    <div class="card bg-dark">
+                        <div class="card-body">
+                            <div id="anprSuccess" style="display: none;">
+                                <h5 class="text-success">License Plate Detected</h5>
+                                <div class="display-6 text-center mb-3" id="plateText"></div>
+                            </div>
+                            <div id="anprError" style="display: none;">
+                                <h5 class="text-danger">License Plate Detection Failed</h5>
+                                <p id="anprErrorText" class="mb-0"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block additional_scripts %}
+<script src="{{ url_for('static', filename='js/camera_test.js') }}"></script>
+{% endblock %}
