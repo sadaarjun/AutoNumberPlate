@@ -31,7 +31,8 @@ sudo apt install -y \
     libtesseract-dev \
     python3-numpy \
     libcamera-dev \
-    python3-picamera2
+    python3-picamera2 \
+	ultralytics
 ```
 
 ### 2. Set up the Database
