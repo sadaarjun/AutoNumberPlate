@@ -70,7 +70,8 @@ pip install flask \
     opencv-python \
     Pillow \
     requests \
-    email-validator
+    email-validator \
+	ultralytics
 ```
 
 ### 5. Configure the Application
