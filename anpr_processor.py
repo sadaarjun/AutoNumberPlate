@@ -1,526 +1,586 @@
-"""
-ANPR (Automatic Number Plate Recognition) Processor
-Handles all ANPR-related processing using NCNN for inference
-"""
-import os
 import cv2
 import numpy as np
 import logging
-from utils import ensure_directory_exists
+import re
+import pytesseract
+import os
+import sys
+from pathlib import Path
 
-# Import ncnn with error handling
-try:
-    import ncnn
-    # Different versions of ncnn have different structures
-    # Some versions have different pixel type structures
-    
-    # Set default
-    NEEDS_COLOR_CONVERSION = False
-    
-    # Try to find the correct pixel type constant
-    try:
-        # Check for Mat.PixelType structure (newer versions)
-        if hasattr(ncnn, 'Mat') and hasattr(ncnn.Mat, 'PixelType'):
-            if hasattr(ncnn.Mat.PixelType, 'BGR'):
-                PIXEL_BGR = ncnn.Mat.PixelType.BGR
-                logging.info("Using ncnn.Mat.PixelType.BGR")
-            elif hasattr(ncnn.Mat.PixelType, 'PIXEL_BGR'):
-                PIXEL_BGR = ncnn.Mat.PixelType.PIXEL_BGR
-                logging.info("Using ncnn.Mat.PixelType.PIXEL_BGR")
-            elif hasattr(ncnn.Mat.PixelType, 'PIXEL_RGB'):
-                PIXEL_BGR = ncnn.Mat.PixelType.PIXEL_RGB
-                NEEDS_COLOR_CONVERSION = True
-                logging.info("Using ncnn.Mat.PixelType.PIXEL_RGB with color conversion")
-            else:
-                PIXEL_BGR = 2  # Fallback value
-                logging.warning("Using fallback value 2 for Mat.PixelType.BGR")
-        # Check for PixelType structure (older versions)
-        elif hasattr(ncnn, 'PixelType'):
-            if hasattr(ncnn.PixelType, 'BGR'):
-                PIXEL_BGR = ncnn.PixelType.BGR
-                logging.info("Using ncnn.PixelType.BGR")
-            elif hasattr(ncnn.PixelType, 'PIXEL_BGR'):
-                PIXEL_BGR = ncnn.PixelType.PIXEL_BGR
-                logging.info("Using ncnn.PixelType.PIXEL_BGR")
-            elif hasattr(ncnn.PixelType, 'PIXEL_RGB'):
-                PIXEL_BGR = ncnn.PixelType.PIXEL_RGB
-                NEEDS_COLOR_CONVERSION = True
-                logging.info("Using ncnn.PixelType.PIXEL_RGB with color conversion")
-            else:
-                PIXEL_BGR = 2  # Fallback
-                logging.warning("Using fallback value 2 for PixelType.BGR")
-        # Check for direct constants
-        elif hasattr(ncnn, 'PIXEL_BGR'):
-            PIXEL_BGR = ncnn.PIXEL_BGR
-            logging.info("Using ncnn.PIXEL_BGR")
-        elif hasattr(ncnn, 'PIXEL_RGB'):
-            PIXEL_BGR = ncnn.PIXEL_RGB
-            NEEDS_COLOR_CONVERSION = True
-            logging.info("Using ncnn.PIXEL_RGB with color conversion")
-        else:
-            # Fallback to common value
-            PIXEL_BGR = 2  # Common value for BGR in some libraries
-            logging.warning("Using fallback value 2 for PIXEL_BGR")
-    except Exception as e:
-        PIXEL_BGR = 2  # Fallback on any error
-        logging.warning(f"Error detecting pixel type: {str(e)}. Using fallback value 2.")
-except ImportError:
-    logging.error("NCNN library not found. Please install it with pip install ncnn")
-    raise
-
+# Configure logging with detailed format
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('anpr_debug.log'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
-class ANPRProcessor:
-    """
-    Process images using YOLO v11 for Automatic Number Plate Recognition
-    Optimized for Raspberry Pi deployment
-    """
-    def _is_raspberry_pi(self):
-        """Check if we're running on a Raspberry Pi for optimizations"""
-        try:
-            with open('/proc/device-tree/model', 'r') as f:
-                model = f.read()
-                return 'Raspberry Pi' in model
-        except:
-            # Check for ARM processor as a fallback
-            try:
-                import platform
-                return platform.machine().startswith('arm') or platform.machine().startswith('aarch')
-            except:
-                return False
-            
-    def __init__(self, model_path="models/anpr_yolov11.param", weights_path="models/anpr_yolov11.bin"):
-        """
-        Initialize the ANPR processor
-        
-        Args:
-            model_path: Path to the NCNN model .param file
-            weights_path: Path to the NCNN model .bin file
-        """
-        self.model_path = model_path
-        self.weights_path = weights_path
-        
-        # Check if running on Raspberry Pi for optimizations
-        self.is_raspi = self._is_raspberry_pi()
-        
-        # Use a smaller input size on Raspberry Pi to improve performance
-        if self.is_raspi:
-            logger.info("Optimizing ANPR for Raspberry Pi - using reduced inference size")
-            self.input_size = (320, 320)  # Smaller input size for better performance on Raspberry Pi
-        else:
-            self.input_size = (640, 640)  # Default YOLO v11 input size for desktop systems
-            
-        self.net = None
-        self.initialized = False
-        
-        # Load the model if files exist
-        if os.path.exists(model_path) and os.path.exists(weights_path):
-            self.load_model()
-        else:
-            logger.warning(f"Model files not found at {model_path} and {weights_path}")
-            logger.info("The model needs to be trained first or copied to the specified location")
+# Check if we can import YOLO
+try:
+    from ultralytics import YOLO
+    MOCK_MODE = False
+    logger.info("Successfully imported ultralytics YOLO")
+except ImportError:
+    logger.warning("Unable to import ultralytics YOLO, using fallback mechanism")
+    MOCK_MODE = True
 
-    def load_model(self):
-        """Load the YOLO v11 model using NCNN with Raspberry Pi optimizations"""
+class ANPRSettings:
+    """Class to hold ANPR configuration settings"""
+    def __init__(self):
+        self.enable_preprocessing = True
+        self.min_plate_size = 20  # Minimum plate area (pixels)
+        self.max_plate_size = 100000  # Maximum plate area (pixels)
+        self.yolo_confidence = 0.5  # YOLOv11 detection confidence threshold
+        self.model_path = "numberplate-best.pt"  # Path to YOLOv11 model
+        self.use_ncnn = False  # Whether to use NCNN format (for Raspberry Pi)
+        self.ncnn_param_path = None  # Path to NCNN param file
+        self.ncnn_bin_path = None  # Path to NCNN bin file
+
+def process_anpr(image, anpr_settings):
+    """
+    Process an image for HSRP license plate detection and recognition using YOLOv11
+    """
+    try:
+        logger.debug("Starting ANPR processing")
+        if image is None or image.size == 0:
+            logger.error("Invalid image input: Image is None or empty")
+            return False, "Invalid image input"
+
+        height, width = image.shape[:2]
+        logger.debug(f"Input image dimensions: {width}x{height}")
+
+        max_width = 1000  # Increased for better resolution
+        if width > max_width:
+            ratio = max_width / width
+            new_height = int(height * ratio)
+            image = cv2.resize(image, (max_width, new_height))
+            logger.debug(f"Resized image to: {max_width}x{new_height}")
+        else:
+            logger.debug("No resizing needed")
+
+        img = image.copy()
+
+        if anpr_settings.enable_preprocessing:
+            logger.debug("Applying preprocessing")
+            img = preprocess_image(img)
+        else:
+            logger.debug("Preprocessing disabled")
+
+        logger.debug("Detecting plate region with YOLOv11")
+        plate_img = detect_plate_region(img, anpr_settings)
+
+        if plate_img is None:
+            logger.warning("No license plate detected in the image")
+            return False, "No license plate detected in the image"
+
+        logger.debug("Recognizing plate text")
+        plate_text = recognize_plate_text(plate_img)
+
+        if not plate_text:
+            logger.warning("Could not recognize text on the license plate")
+            return False, "Could not recognize text on the license plate"
+
+        logger.debug(f"Raw plate text: {plate_text}")
+        cleaned_plate = clean_plate_text(plate_text)
+
+        if not cleaned_plate:
+            logger.warning("Recognized text does not appear to be a valid HSRP license plate")
+            return False, "Recognized text does not appear to be a valid HSRP license plate"
+
+        logger.info(f"Successfully detected license plate: {cleaned_plate}")
+        return True, cleaned_plate
+
+    except Exception as e:
+        logger.error(f"Error in ANPR processing: {str(e)}", exc_info=True)
+        return False, f"ANPR Processing Error: {str(e)}"
+
+def preprocess_image(image):
+    """
+    Apply preprocessing to enhance the image for HSRP license plate detection
+    """
+    try:
+        logger.debug("Starting image preprocessing")
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        logger.debug("Converted to HSV for color filtering")
+
+        # Color filtering for HSRP plates (white, yellow, green)
+        lower_white = np.array([0, 0, 180])
+        upper_white = np.array([180, 60, 255])
+        lower_yellow = np.array([15, 80, 80])
+        upper_yellow = np.array([35, 255, 255])
+        lower_green = np.array([35, 40, 40])
+        upper_green = np.array([85, 255, 255])
+
+        mask_white = cv2.inRange(hsv, lower_white, upper_white)
+        mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+        mask_green = cv2.inRange(hsv, lower_green, upper_green)
+        mask = cv2.bitwise_or(mask_white, cv2.bitwise_or(mask_yellow, mask_green))
+        logger.debug("Applied color filtering for white, yellow, green backgrounds")
+
+        masked_image = cv2.bitwise_and(image, image, mask=mask)
+        gray = cv2.cvtColor(masked_image, cv2.COLOR_BGR2GRAY)
+        logger.debug("Converted to grayscale after color filtering")
+
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        logger.debug("Applied Gaussian blur with kernel (5,5)")
+
+        thresh = cv2.adaptiveThreshold(
+            blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2
+        )
+        logger.debug("Applied adaptive thresholding (inverted, blockSize=11)")
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        thresh = cv2.dilate(thresh, kernel, iterations=1)
+        logger.debug("Applied dilation to strengthen plate edges")
+
+        debug_dir = "debug"
+        if not os.path.exists(debug_dir):
+            os.makedirs(debug_dir)
+        cv2.imwrite(os.path.join(debug_dir, "preprocessed.jpg"), thresh)
+        cv2.imwrite(os.path.join(debug_dir, "color_mask.jpg"), mask)
+        logger.debug("Saved preprocessed and color mask images to debug/")
+
+        return thresh
+
+    except Exception as e:
+        logger.error(f"Error in image preprocessing: {str(e)}", exc_info=True)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+        logger.debug("Falling back to grayscale image due to preprocessing error")
+        return gray
+
+def correct_perspective(image, bbox):
+    """
+    Apply perspective correction to a YOLOv11-detected bounding box
+    """
+    try:
+        logger.debug("Applying perspective correction")
+        x1, y1, x2, y2 = bbox
+
+        # Convert to contour-like points for perspective transform
+        pts = np.array([
+            [x1, y1], [x2, y1], [x2, y2], [x1, y2]
+        ], dtype=np.float32)
+
+        # Calculate destination dimensions
+        width = x2 - x1
+        height = y2 - y1
+
+        # Create destination points
+        dst = np.array([
+            [0, 0],
+            [width, 0],
+            [width, height],
+            [0, height]
+        ], dtype=np.float32)
+
+        # Calculate perspective transform matrix
+        M = cv2.getPerspectiveTransform(pts, dst)
+        warped = cv2.warpPerspective(image, M, (int(width), int(height)))
+
+        logger.debug(f"Perspective corrected to {width}x{height}")
+
+        debug_dir = "debug"
+        if not os.path.exists(debug_dir):
+            os.makedirs(debug_dir)
+        cv2.imwrite(os.path.join(debug_dir, "warped_plate.jpg"), warped)
+        logger.debug("Saved warped plate to debug/warped_plate.jpg")
+
+        return warped
+
+    except Exception as e:
+        logger.error(f"Error in perspective correction: {str(e)}", exc_info=True)
+        # Fallback to simple crop
+        return image[int(y1):int(y2), int(x1):int(x2)]
+
+def load_yolov11_model(model_path):
+    """
+    Load a YOLOv11 model for inference
+    """
+    if MOCK_MODE:
+        logger.warning("Running in mock mode, returning dummy model")
+        return None
+
+    try:
+        # Support for our app's generated models
+        # First check if this is a NCNN format model (best for Raspberry Pi)
+        if model_path.endswith('.param'):
+            try:
+                import ncnn
+                logger.info(f"Loading NCNN model: {model_path}")
+                net = ncnn.Net()
+
+                # Load param and bin files
+                bin_path = os.path.splitext(model_path)[0] + '.bin'
+                if not os.path.exists(bin_path):
+                    logger.error(f"NCNN bin file missing: {bin_path}")
+                    raise FileNotFoundError(f"NCNN bin file missing: {bin_path}")
+
+                # Load the model
+                net.load_param(model_path)
+                net.load_model(bin_path)
+                logger.info(f"Successfully loaded NCNN model: {model_path}")
+                return {'type': 'ncnn', 'net': net}
+            except ImportError:
+                logger.error("Failed to import ncnn package - is it installed?")
+                raise
+
+        # For PT model files from our app
+        # First, check if this is a YOLOv11 model from our application
+        logger.info(f"Loading YOLO model from {model_path}")
+        model = YOLO(model_path)
+        logger.info(f"Successfully loaded YOLO model: {model.model}")
+        return model
+
+    except Exception as e:
+        logger.error(f"Error loading YOLOv11 model: {str(e)}", exc_info=True)
+        raise
+
+def detect_plate_region(image, anpr_settings, debug_dir="debug"):
+    """
+    Detect HSRP license plate region using YOLOv11
+    """
+    try:
+        logger.debug("Starting plate region detection with YOLOv11")
+        if not os.path.exists(debug_dir):
+            os.makedirs(debug_dir)
+            logger.debug(f"Created debug directory: {debug_dir}")
+
+        height, width = image.shape[:2]
+        logger.debug(f"Input image for detection: {width}x{height}")
+
+        # Load model
         try:
-            # Check if files exist first
-            if not os.path.exists(self.model_path):
-                logger.error(f"Model parameter file not found: {self.model_path}")
-                self.initialized = False
-                return
-            
-            if not os.path.exists(self.weights_path):
-                logger.error(f"Model weights file not found: {self.weights_path}")
-                self.initialized = False
-                return
-            
-            # Create Net object with error handling
-            try:
-                self.net = ncnn.Net()
-                
-                # Apply Raspberry Pi specific optimizations if needed
-                if self.is_raspi:
-                    logger.info("Applying Raspberry Pi specific NCNN optimizations")
-                    
-                    # Set the number of threads based on CPU cores (Raspberry Pi typically has 4 cores)
-                    try:
-                        import multiprocessing
-                        num_threads = min(2, multiprocessing.cpu_count())  # Use max 2 threads on Raspberry Pi
-                        self.net.set_num_threads(num_threads)
-                        logger.info(f"Set NCNN to use {num_threads} threads for inference")
-                    except Exception as e:
-                        logger.warning(f"Failed to set thread count: {str(e)}")
-                    
-                    # Enable NCNN optimization options for ARM devices
-                    try:
-                        # Enable Winograd optimization for faster convolution on ARM
-                        if hasattr(self.net, 'opt'):
-                            if hasattr(self.net.opt, 'use_winograd_convolution'):
-                                self.net.opt.use_winograd_convolution = True
-                                
-                            # Limit memory usage on Raspberry Pi
-                            if hasattr(self.net.opt, 'blob_allocator_strategy'):
-                                self.net.opt.blob_allocator_strategy = 0  # Simple memory strategy
-                                
-                            logger.info("Applied ARM-specific NCNN optimizations")
-                    except Exception as e:
-                        logger.warning(f"Failed to set ARM optimizations: {str(e)}")
-            except Exception as e:
-                logger.error(f"Failed to create NCNN Net object: {str(e)}")
-                self.initialized = False
-                return
-                
-            # Load parameters and weights
-            try:
-                ret_param = self.net.load_param(self.model_path)
-                if ret_param != 0:
-                    logger.error(f"Failed to load model parameters, error code: {ret_param}")
-                    self.initialized = False
-                    return
-                    
-                ret_model = self.net.load_model(self.weights_path)
-                if ret_model != 0:
-                    logger.error(f"Failed to load model weights, error code: {ret_model}")
-                    self.initialized = False
-                    return
-                    
-                self.initialized = True
-                logger.info("ANPR model loaded successfully")
-                
-                # For Raspberry Pi, print memory usage to help with debugging
-                if self.is_raspi:
-                    try:
-                        import psutil
-                        mem = psutil.virtual_memory()
-                        logger.info(f"Memory usage after model loading: {mem.percent}% used, {mem.available / 1024 / 1024:.1f} MB available")
-                    except ImportError:
-                        logger.info("psutil not available for memory tracking")
-                    
-            except Exception as e:
-                logger.error(f"Failed to load ANPR model: {str(e)}")
-                self.initialized = False
+            model = load_yolov11_model(anpr_settings.model_path)
         except Exception as e:
-            logger.error(f"Unexpected error loading ANPR model: {str(e)}")
-            self.initialized = False
+            logger.error(f"Failed to load model: {str(e)}")
+            return None
 
-    def preprocess_image(self, img):
-        """
-        Preprocess image for YOLO v11 inference
-        Optimized for Raspberry Pi with memory considerations
-        
-        Args:
-            img: OpenCV image in BGR format
-            
-        Returns:
-            Preprocessed image and scaling factors
-        """
-        # Get original dimensions
-        height, width, _ = img.shape
-        
-        # Calculate scaling factors
-        scale_x = self.input_size[0] / width
-        scale_y = self.input_size[1] / height
-        
-        # For Raspberry Pi, use a more memory-efficient resizing method when needed
-        if self.is_raspi and (width > 1000 or height > 1000):
-            # For large images on Raspberry Pi, do resize in two steps to save memory
-            # First resize to an intermediate size
-            interim_size = (min(width, 640), min(height, 640))
-            img = cv2.resize(img, interim_size)
-            
-            # Release memory explicitly (helpful on Raspberry Pi)
-            import gc
-            gc.collect()
-            
-            # Then resize to final input size
-            resized = cv2.resize(img, self.input_size)
-        else:
-            # Standard resize for regular images
-            resized = cv2.resize(img, self.input_size)
-        
-        # Handle color conversion if needed due to ncnn.PixelType fix
-        if globals().get('NEEDS_COLOR_CONVERSION', False):
-            resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-            
-        # Normalize pixel values to 0-1
-        normalized = resized.astype(np.float32) / 255.0
-        
-        return normalized, (scale_x, scale_y)
-    
-    def detect(self, img, conf_threshold=0.25, iou_threshold=0.45):
-        """
-        Detect license plates in the image
-        Optimized for performance on Raspberry Pi
-        
-        Args:
-            img: OpenCV image in BGR format
-            conf_threshold: Confidence threshold for detections
-            iou_threshold: IOU threshold for non-maximum suppression
-            
-        Returns:
-            List of detected license plates with coordinates and confidence
-        """
-        if not self.initialized:
-            logger.error("Model not initialized. Cannot perform detection.")
-            return []
-        
-        # Adjust confidence threshold on Raspberry Pi to improve performance
-        if self.is_raspi:
-            # Use a slightly higher confidence threshold on Raspberry Pi
-            # to reduce false positives and post-processing workload
-            conf_threshold = max(conf_threshold, 0.35)
-            
-        # Original image dimensions
-        height, width, _ = img.shape
-        
-        # Record start time for performance monitoring on Raspberry Pi
-        start_time = None
-        if self.is_raspi:
-            import time
-            start_time = time.time()
-            
-        # Preprocess the image
-        preprocessed, scales = self.preprocess_image(img)
-        
-        try:
-            # Check if net is initialized properly
-            if not self.initialized or self.net is None:
-                logger.error("Model not initialized. Call load_model() first.")
-                return []
-                
-            # Create ncnn extractor
-            try:
-                ex = self.net.create_extractor()
-            except Exception as e:
-                logger.error(f"Failed to create extractor: {str(e)}")
-                return []
-            
-            # Create ncnn Mat from the preprocessed image
-            try:
-                # If conversion is needed (RGB instead of BGR)
-                if NEEDS_COLOR_CONVERSION:
-                    preprocessed = cv2.cvtColor(preprocessed, cv2.COLOR_BGR2RGB)
-                
-                mat_in = ncnn.Mat.from_pixels(
-                    preprocessed, 
-                    PIXEL_BGR,  # Use our constant instead of ncnn.PixelType.BGR
-                    self.input_size[0], 
-                    self.input_size[1]
-                )
-            except Exception as e:
-                logger.error(f"Failed to create Mat from pixels: {str(e)}")
-                return []
-            
+        # Check for NCNN model
+        is_ncnn = isinstance(model, dict) and model.get('type') == 'ncnn'
+
+        # Convert grayscale/thresholded image back to BGR for YOLOv11
+        input_img = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR) if len(image.shape) == 2 else image
+        logger.debug("Converted image to BGR for YOLOv11")
+
+        # Perform detection based on model type
+        debug_img = input_img.copy()
+        plate_img = None
+
+        if MOCK_MODE:
+            logger.info("Mock mode: Generating simulated detection")
+            # Create a simulated detection in the center of the image
+            center_x = width // 2
+            center_y = height // 2
+            w = width // 3
+            h = height // 5
+            x1, y1 = center_x - w // 2, center_y - h // 2
+            x2, y2 = center_x + w // 2, center_y + h // 2
+            conf = 0.85
+
+            # Create a mock detection
+            detection = {
+                'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2,
+                'conf': conf, 'class': 0, 'class_name': 'license_plate'
+            }
+
+            # Draw bounding box on debug image
+            cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(
+                debug_img, f"Conf: {conf:.2f}", (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1
+            )
+
+            # Crop the plate region
+            plate_img = input_img[y1:y2, x1:x2]
+
+        elif is_ncnn:
+            logger.info("Using NCNN model for detection")
+            net = model['net']
+
+            # Convert image to NCNN format and resize
+            img_h, img_w = input_img.shape[:2]
+            input_size = 640  # Standard YOLO input size
+
+            # Create NCNN mat from image
+            mat_in = ncnn.Mat.from_pixels_resize(
+                input_img, ncnn.Mat.PixelType.BGR, img_w, img_h, input_size, input_size
+            )
+
             # Normalize
             mean_vals = [0, 0, 0]
             norm_vals = [1/255.0, 1/255.0, 1/255.0]
             mat_in.substract_mean_normalize(mean_vals, norm_vals)
-            
-            # Input to the model
-            ex.input("input", mat_in)
-            
+
+            # Create extractor
+            ex = net.create_extractor()
+            ex.input("images", mat_in)  # Standard YOLO input name
+
             # Get output
-            ret, mat_out = ex.extract("output")
-            
-            # Process outputs
-            detections = []
+            ret, mat_out = ex.extract("output")  # Standard YOLO output name
+
+            # Process results
+            best_detection = None
+
             if ret == 0:
-                # Each detection has 7 elements: batch, class, confidence, x1, y1, x2, y2
                 for i in range(mat_out.h):
-                    values = [mat_out.row(i)[j] for j in range(mat_out.w)]
-                    
-                    class_id = int(values[1])
-                    confidence = values[2]
-                    
-                    if confidence >= conf_threshold:
-                        # Adjust coordinates back to original image dimensions
-                        x1 = int(values[3] / scales[0])
-                        y1 = int(values[4] / scales[1])
-                        x2 = int(values[5] / scales[0])
-                        y2 = int(values[6] / scales[1])
-                        
-                        # Ensure coordinates are within image boundaries
-                        x1 = max(0, min(x1, width - 1))
-                        y1 = max(0, min(y1, height - 1))
-                        x2 = max(0, min(x2, width - 1))
-                        y2 = max(0, min(y2, height - 1))
-                        
-                        # Create detection object
-                        detection = {
-                            'class_id': class_id,
-                            'confidence': confidence,
-                            'bbox': [x1, y1, x2, y2]
+                    values = mat_out.row(i)
+
+                    # Skip background detections
+                    if len(values) < 6:
+                        continue
+
+                    class_id = int(values[0])
+                    conf = float(values[1])
+
+                    # Filter by confidence
+                    if conf < anpr_settings.yolo_confidence:
+                        continue
+
+                    # Get coordinates (normalized)
+                    x1 = float(values[2]) * img_w
+                    y1 = float(values[3]) * img_h
+                    x2 = float(values[4]) * img_w
+                    y2 = float(values[5]) * img_h
+
+                    # Calculate area and aspect ratio
+                    w, h = x2 - x1, y2 - y1
+                    area = w * h
+                    aspect_ratio = w / h if h > 0 else 0
+
+                    # Filter by size and aspect ratio
+                    if (area < anpr_settings.min_plate_size or
+                        area > anpr_settings.max_plate_size or
+                        aspect_ratio < 0.5 or aspect_ratio > 10.0):
+                        continue
+
+                    # Keep the highest confidence detection
+                    if best_detection is None or conf > best_detection['conf']:
+                        best_detection = {
+                            'x1': int(x1), 'y1': int(y1), 'x2': int(x2), 'y2': int(y2),
+                            'conf': conf, 'class': class_id, 'class_name': 'license_plate'
                         }
-                        detections.append(detection)
-            
-            # Apply non-maximum suppression
-            result = self._apply_nms(detections, iou_threshold)
-            
-            # Log performance metrics for Raspberry Pi
-            if self.is_raspi and start_time is not None:
-                import time
-                elapsed = time.time() - start_time
-                logger.info(f"ANPR detection completed in {elapsed:.3f} seconds on Raspberry Pi")
-                logger.info(f"Detected {len(result)} license plates with confidence threshold {conf_threshold}")
-                
-                # Log memory usage if psutil is available
-                try:
-                    import psutil
-                    mem = psutil.virtual_memory()
-                    logger.info(f"Memory usage after detection: {mem.percent}% used, {mem.available / 1024 / 1024:.1f} MB available")
-                    
-                    # If memory is running low, force garbage collection
-                    if mem.percent > 80:
-                        import gc
-                        gc.collect()
-                        logger.warning(f"Memory usage high ({mem.percent}%), performed garbage collection")
-                except ImportError:
-                    pass
-                
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error during detection: {str(e)}")
-            # On Raspberry Pi, perform memory cleanup after an error
-            if self.is_raspi:
-                try:
-                    import gc
-                    gc.collect()
-                except:
-                    pass
-            return []
-    
-    def _apply_nms(self, detections, iou_threshold):
-        """
-        Apply non-maximum suppression to the detections
-        
-        Args:
-            detections: List of detection dictionaries
-            iou_threshold: IOU threshold for NMS
-            
-        Returns:
-            List of filtered detections
-        """
-        if not detections:
-            return []
-            
-        # Sort by confidence
-        detections.sort(key=lambda x: x['confidence'], reverse=True)
-        
-        kept_detections = []
-        
-        while detections:
-            best = detections.pop(0)
-            kept_detections.append(best)
-            
-            # Filter out overlapping boxes
-            filtered_detections = []
-            for det in detections:
-                if self._calculate_iou(best['bbox'], det['bbox']) <= iou_threshold:
-                    filtered_detections.append(det)
-            
-            detections = filtered_detections
-            
-        return kept_detections
-    
-    def _calculate_iou(self, box1, box2):
-        """
-        Calculate Intersection over Union between two bounding boxes
-        
-        Args:
-            box1: First bounding box [x1, y1, x2, y2]
-            box2: Second bounding box [x1, y1, x2, y2]
-            
-        Returns:
-            IOU score
-        """
-        # Calculate intersection area
-        x1 = max(box1[0], box2[0])
-        y1 = max(box1[1], box2[1])
-        x2 = min(box1[2], box2[2])
-        y2 = min(box1[3], box2[3])
-        
-        if x2 < x1 or y2 < y1:
-            return 0.0
-            
-        intersection_area = (x2 - x1) * (y2 - y1)
-        
-        # Calculate union area
-        box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-        box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-        union_area = box1_area + box2_area - intersection_area
-        
-        # Calculate IoU
-        iou = intersection_area / union_area if union_area > 0 else 0
-        
-        return iou
 
-    def save_detections(self, img, detections, output_path="output"):
-        """
-        Save detection results as annotated images
-        
-        Args:
-            img: Original image
-            detections: List of detections
-            output_path: Directory to save results
-        """
-        ensure_directory_exists(output_path)
-        
-        # Create a copy of the image
-        result_img = img.copy()
-        
-        # Draw detections
-        for det in detections:
-            box = det['bbox']
-            confidence = det['confidence']
-            
-            # Draw bounding box
-            cv2.rectangle(result_img, 
-                         (int(box[0]), int(box[1])), 
-                         (int(box[2]), int(box[3])), 
-                         (0, 255, 0), 2)
-            
-            # Draw label
-            label = f"Plate: {confidence:.2f}"
-            cv2.putText(result_img, label, 
-                       (int(box[0]), int(box[1]) - 10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, 
-                       (0, 255, 0), 2)
-        
-        # Save the result
-        output_file = os.path.join(output_path, "detection_result.jpg")
-        cv2.imwrite(output_file, result_img)
-        logger.info(f"Detection result saved to {output_file}")
-        
-        return output_file
+            # Process best detection
+            if best_detection:
+                x1, y1 = best_detection['x1'], best_detection['y1']
+                x2, y2 = best_detection['x2'], best_detection['y2']
+                conf = best_detection['conf']
 
-    def crop_plates(self, img, detections, output_path="output/plates"):
-        """
-        Crop detected license plates from the image
-        
-        Args:
-            img: Original image
-            detections: List of detections
-            output_path: Directory to save cropped plates
-            
-        Returns:
-            List of paths to cropped plate images
-        """
-        ensure_directory_exists(output_path)
-        
-        plate_paths = []
-        
-        for i, det in enumerate(detections):
-            box = det['bbox']
-            
-            # Crop the plate region
-            plate_img = img[int(box[1]):int(box[3]), int(box[0]):int(box[2])]
-            
-            # Save the cropped plate
-            plate_path = os.path.join(output_path, f"plate_{i}.jpg")
-            cv2.imwrite(plate_path, plate_img)
-            plate_paths.append(plate_path)
-            
-        logger.info(f"Saved {len(plate_paths)} cropped license plates")
-        
-        return plate_paths
+                # Draw bounding box on debug image
+                cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(
+                    debug_img, f"Conf: {conf:.2f}", (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1
+                )
+
+                # Apply perspective correction
+                plate_img = correct_perspective(input_img, (x1, y1, x2, y2))
+
+        else:
+            logger.info("Using YOLO model for detection")
+            # Standard YOLO detection
+            results = model(input_img, conf=anpr_settings.yolo_confidence, verbose=False)
+            logger.debug(f"YOLO detected {len(results[0].boxes)} objects")
+
+            # Process detections
+            for box in results[0].boxes:
+                # Get the bounding box coordinates
+                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
+                conf = float(box.conf.cpu().numpy())
+                cls = int(box.cls.cpu().numpy())
+
+                logger.debug(f"Box: x1={x1}, y1={y1}, x2={x2}, y2={y2}, conf={conf:.2f}, class={cls}")
+
+                # Filter by class (assuming class 0 is 'License_Plate' or similar)
+                if cls != 0:
+                    logger.debug(f"Skipped box (class={cls}, expected 0)")
+                    continue
+
+                # Calculate width, height and area
+                w, h = x2 - x1, y2 - y1
+                area = w * h
+
+                # Check plate size
+                if area < anpr_settings.min_plate_size or area > anpr_settings.max_plate_size:
+                    logger.debug(f"Skipped box (area={area:.0f}, expected {anpr_settings.min_plate_size}-{anpr_settings.max_plate_size})")
+                    continue
+
+                # Check aspect ratio
+                aspect_ratio = float(w) / h if h > 0 else 0
+                if aspect_ratio < 0.5 or aspect_ratio > 10.0:
+                    logger.debug(f"Skipped box (aspect_ratio={aspect_ratio:.2f}, expected 0.5-10.0)")
+                    continue
+
+                logger.debug(f"Valid plate detected: area={area:.0f}, aspect_ratio={aspect_ratio:.2f}, conf={conf:.2f}")
+
+                # Crop and apply perspective correction
+                plate_img = correct_perspective(input_img, (x1, y1, x2, y2))
+
+                # Draw bounding box on debug image
+                cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(
+                    debug_img, f"Conf: {conf:.2f}, AR: {aspect_ratio:.2f}",
+                    (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1
+                )
+                break  # Take the first valid plate
+
+        if debug_img is not None:
+            cv2.imwrite(os.path.join(debug_dir, "yolo_detections.jpg"), debug_img)
+            logger.debug("Saved YOLOv11 detections to debug/yolo_detections.jpg")
+
+        if plate_img is None:
+            logger.warning("No valid plate region found after filtering")
+        else:
+            cv2.imwrite(os.path.join(debug_dir, "detected_plate.jpg"), plate_img)
+            logger.debug("Saved detected plate to debug/detected_plate.jpg")
+
+        return plate_img
+
+    except Exception as e:
+        logger.error(f"Error detecting plate region: {str(e)}", exc_info=True)
+        return None
+
+def recognize_plate_text(plate_img):
+    """
+    Recognize text on HSRP license plate using Tesseract OCR
+    """
+    try:
+        logger.debug("Starting plate text recognition")
+        gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY) if len(plate_img.shape) == 3 else plate_img
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        enhanced = clahe.apply(gray)
+        logger.debug("Applied CLAHE contrast enhancement")
+
+        blur = cv2.bilateralFilter(enhanced, 11, 17, 17)
+        logger.debug("Applied bilateral filter for OCR")
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        morph = cv2.morphologyEx(blur, cv2.MORPH_CLOSE, kernel)
+        logger.debug("Applied morphological closing")
+
+        binary = cv2.adaptiveThreshold(
+            morph, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 25, 6
+        )
+        logger.debug("Applied adaptive thresholding for OCR (blockSize=25)")
+
+        binary = cv2.fastNlMeansDenoising(binary, h=15)
+        logger.debug("Applied denoising")
+
+        kernel = np.ones((3, 3), np.uint8)
+        binary = cv2.erode(binary, kernel, iterations=1)
+        binary = cv2.dilate(binary, kernel, iterations=1)
+        logger.debug("Applied erosion and dilation")
+
+        # Scale up for better OCR
+        scale_factor = 2.0
+        height, width = binary.shape
+        binary = cv2.resize(binary, (int(width * scale_factor), int(height * scale_factor)),
+                            interpolation=cv2.INTER_CUBIC)
+        logger.debug(f"Scaled image by {scale_factor}x for OCR")
+
+        debug_dir = "debug"
+        if not os.path.exists(debug_dir):
+            os.makedirs(debug_dir)
+        cv2.imwrite(os.path.join(debug_dir, "ocr_input.jpg"), binary)
+        logger.debug("Saved OCR input image to debug/ocr_input.jpg")
+
+        # Set Tesseract parameters
+        custom_config = r'--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+
+        # Run OCR
+        text = pytesseract.image_to_string(binary, config=custom_config).strip()
+        logger.debug(f"Raw OCR output: {text}")
+
+        # Also try with negative image
+        inverted = cv2.bitwise_not(binary)
+        cv2.imwrite(os.path.join(debug_dir, "ocr_input_inv.jpg"), inverted)
+        logger.debug("Saved inverted OCR input to debug/ocr_input_inv.jpg")
+
+        text_inv = pytesseract.image_to_string(inverted, config=custom_config).strip()
+        logger.debug(f"Raw OCR output (inverted): {text_inv}")
+
+        # Use whichever result is longer
+        if len(text_inv) > len(text):
+            text = text_inv
+            logger.debug("Using inverted image OCR result (longer)")
+
+        # If nothing is recognized, try with different PSM mode
+        if not text:
+            alt_config = r'--psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+            text = pytesseract.image_to_string(binary, config=alt_config).strip()
+            logger.debug(f"Alternative OCR output (PSM 8): {text}")
+
+        return text
+
+    except Exception as e:
+        logger.error(f"Error during text recognition: {str(e)}", exc_info=True)
+        return ""
+
+def clean_plate_text(text):
+    """
+    Clean and validate recognized license plate text for HSRP format
+    """
+    try:
+        # Remove non-alphanumeric characters
+        text = re.sub(r'[^A-Z0-9]', '', text.upper())
+        logger.debug(f"Cleaned text: {text}")
+
+        # Check for common OCR errors
+        text = text.replace('0', 'O').replace('1', 'I').replace('5', 'S')
+        logger.debug(f"After common error correction: {text}")
+
+        # Format for standard Indian license plates: 2 letters + 2 digits + 4 alphanumerics
+        plate_pattern = r'^[A-Z]{2}\d{1,2}[A-Z0-9]{1,4}$'
+        if re.match(plate_pattern, text):
+            logger.debug(f"Valid license plate format: {text}")
+            return text
+
+        # If no match, try to extract a valid plate from the detected text
+        all_plates = re.findall(r'[A-Z]{2}\d{1,2}[A-Z0-9]{1,4}', text)
+        if all_plates:
+            logger.debug(f"Extracted plate from text: {all_plates[0]}")
+            return all_plates[0]
+
+        # If still no match, return original text if it's at least 4 characters
+        if len(text) >= 4:
+            logger.warning(f"Returning unformatted text: {text}")
+            return text
+
+        logger.warning("No valid license plate text found")
+        return ""
+
+    except Exception as e:
+        logger.error(f"Error cleaning plate text: {str(e)}", exc_info=True)
+        # Return raw text as fallback
+        return text
+
+if __name__ == "__main__":
+    # Example usage
+    if len(sys.argv) != 3:
+        print(f"Usage: python {sys.argv[0]} <image_path> <model_path>")
+        sys.exit(1)
+
+    image_path = sys.argv[1]
+    model_path = sys.argv[2]
+
+    # Load image
+    image = cv2.imread(image_path)
+    if image is None:
+        print(f"Error: Could not load image {image_path}")
+        sys.exit(1)
+
+    # Configure settings
+    settings = ANPRSettings()
+    settings.model_path = model_path
+    settings.yolo_confidence = 0.25  # Lower threshold for testing
+
+    # Detect and recognize plate
+    success, result = process_anpr(image, settings)
+
+    if success:
+        print(f"Detected license plate: {result}")
+    else:
+        print(f"Failed to detect license plate: {result}")
